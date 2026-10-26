@@ -53,35 +53,30 @@ function roadTexture(track) {
   return tex;
 }
 
-function grassTexture() {
-  const tex = canvasTexture(256, 256, (g) => {
-    g.fillStyle = '#6cbf48';
-    g.fillRect(0, 0, 256, 256);
-    const blobs = [
-      [48, 70, 92, 'rgba(158, 224, 104, 0.85)'],
-      [180, 40, 74, 'rgba(92, 176, 58, 0.7)'],
-      [200, 190, 100, 'rgba(176, 230, 112, 0.75)'],
-      [70, 200, 80, 'rgba(74, 158, 48, 0.65)'],
-      [128, 128, 60, 'rgba(186, 236, 120, 0.45)'],
-    ];
-    for (const [x, y, radius, color] of blobs) {
-      for (const ox of [-256, 0, 256]) {
-        for (const oy of [-256, 0, 256]) {
-          const shade = g.createRadialGradient(x + ox, y + oy, radius * 0.1, x + ox, y + oy, radius);
-          shade.addColorStop(0, color);
-          shade.addColorStop(1, 'rgba(108, 191, 72, 0)');
-          g.fillStyle = shade;
-          g.beginPath();
-          g.arc(x + ox, y + oy, radius, 0, Math.PI * 2);
-          g.fill();
-        }
-      }
-    }
-  });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(4, 4);
-  return tex;
+function addMeadow(scene) {
+  const geo = new THREE.PlaneGeometry(460, 460, 28, 28);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const base = new THREE.Color(0x5cbf48);
+  const light = new THREE.Color(0x6bc956);
+  const shade = new THREE.Color(0x52b040);
+  const color = new THREE.Color();
+  for (let i = 0; i < pos.count; i += 1) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const n = Math.sin(x * 0.008 + 0.6) * 0.7 + Math.sin(z * 0.007 + 1.3) * 0.55;
+    if (n > 0.45) color.copy(base).lerp(light, Math.min(1, (n - 0.45) / 0.7));
+    else if (n < -0.5) color.copy(base).lerp(shade, Math.min(1, (-0.5 - n) / 0.7));
+    else color.copy(base);
+    colors[i * 3] = color.r;
+    colors[i * 3 + 1] = color.g;
+    colors[i * 3 + 2] = color.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  mesh.receiveShadow = true;
+  scene.add(mesh);
 }
 
 function stripeTexture() {
@@ -715,10 +710,7 @@ export function createWorld(canvas, track) {
   fill.position.set(-40, 24, -30);
   scene.add(fill);
 
-  const grass = new THREE.Mesh(new THREE.PlaneGeometry(460, 460), new THREE.MeshLambertMaterial({ map: grassTexture() }));
-  grass.rotation.x = -Math.PI / 2;
-  grass.receiveShadow = true;
-  scene.add(grass);
+  addMeadow(scene);
 
   scene.add(buildRoad(track));
   addFence(scene, track);
