@@ -85,6 +85,10 @@ export function createRacer(def, pose) {
     boost: 0,
     boostFrom: null,
     item: null,
+    award: null,
+    rolling: false,
+    rollIndex: 0,
+    rollWait: 0,
     itemTime: 0,
     stun: 0,
     stunKind: null,
@@ -133,6 +137,10 @@ export function resetRacer(racer) {
   racer.boost = 0;
   racer.boostFrom = null;
   racer.item = null;
+  racer.award = null;
+  racer.rolling = false;
+  racer.rollIndex = 0;
+  racer.rollWait = 0;
   racer.itemTime = 0;
   racer.stun = 0;
   racer.stunKind = null;
@@ -221,6 +229,8 @@ export function stepRacer(racer, input, dt, track, ctx) {
     racer.stun = 0;
     racer.stunKind = null;
     racer.item = null;
+    racer.award = null;
+    racer.rolling = false;
     parkFinished(racer, dt, track);
     return;
   }

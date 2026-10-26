@@ -33,7 +33,7 @@ No menu, **Jogar** começa a corrida de 3 voltas.
 - **E** usa o item que você está carregando
 - **Esc** pausa
 
-Caixas girando na pista entregam um item. Cada piloto segura um por vez. No celular, o botão **Item** faz o mesmo que a tecla **E**.
+Caixas girando na pista sorteiam um item. O placar gira entre os nomes e só então o item pode ser usado. Cada piloto segura um por vez. No celular, o botão **Item** mostra o sorteio e faz o mesmo que a tecla **E**.
 
 - **Pamonha** — arrancada curta
 - **Casca** — fica no chão, atrás de quem soltou. Quem passa por cima escorrega e perde velocidade

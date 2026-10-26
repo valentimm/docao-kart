@@ -163,8 +163,10 @@ export function createItemView(scene, field, racers) {
         const id = racer.item;
         marker.visible = !!id && !racer.finished;
         if (!marker.visible) return;
-        marker.position.set(racer.x, 2.95 + Math.sin(time * 6 + index) * 0.05, racer.z);
-        marker.rotation.y = racer.yaw;
+        const hop = racer.rolling ? Math.sin(time * 26) * 0.16 : Math.sin(time * 6 + index) * 0.05;
+        marker.position.set(racer.x, 2.95 + hop, racer.z);
+        marker.rotation.y = racer.yaw + (racer.rolling ? time * 8 : 0);
+        marker.scale.setScalar(racer.rolling ? 1.2 : 1);
         marker.children[0].visible = id === 'pamonha';
         marker.children[1].visible = id === 'casca';
         marker.children[2].visible = id === 'tomate';

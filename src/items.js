@@ -9,6 +9,11 @@ export const ITEMS = {
   tomate: { name: 'Tomate', swatch: '#ef3d3d', tint: 0xef3d3d },
 };
 
+/** Delays between roulette faces. The last face is the prize, so the sum is the spin. */
+const ROLL_GAPS = [0.05, 0.05, 0.055, 0.06, 0.07, 0.08, 0.1, 0.12, 0.16, 0.22, 0.3];
+
+export const ITEM_ORDER = ['pamonha', 'casca', 'tomate'];
+
 export const ITEM_RULES = {
   respawn: 4.5,
   pickupRadius: 2.05,
@@ -19,6 +24,7 @@ export const ITEM_RULES = {
   shotSpeed: 44,
   shotRadius: 1.6,
   pamonhaTime: 1.2,
+  roulette: ROLL_GAPS.reduce((sum, gap) => sum + gap, 0),
 };
 
 const SPOTS = [
@@ -41,6 +47,46 @@ function rollItem(rng) {
   if (roll < 1 / 3) return 'pamonha';
   if (roll < 2 / 3) return 'casca';
   return 'tomate';
+}
+
+function faceAt(award, index) {
+  const last = ITEM_ORDER.indexOf(award);
+  const start = (last - ((ROLL_GAPS.length - 1) % ITEM_ORDER.length) + ITEM_ORDER.length) % ITEM_ORDER.length;
+  return ITEM_ORDER[(start + index) % ITEM_ORDER.length];
+}
+
+function startRoll(racer, award) {
+  racer.award = award;
+  racer.rolling = true;
+  racer.rollIndex = 0;
+  racer.rollWait = ROLL_GAPS[0];
+  racer.item = faceAt(award, 0);
+  racer.itemTime = 0;
+}
+
+function advanceRoll(racer, dt) {
+  if (!racer.rolling) return null;
+  let left = dt;
+  let spun = false;
+  while (left > 0) {
+    if (left < racer.rollWait) {
+      racer.rollWait -= left;
+      break;
+    }
+    left -= racer.rollWait;
+    racer.rollIndex += 1;
+    spun = true;
+    if (racer.rollIndex >= ROLL_GAPS.length) {
+      racer.rolling = false;
+      racer.rollWait = 0;
+      racer.item = racer.award;
+      racer.itemTime = 0;
+      return 'land';
+    }
+    racer.item = faceAt(racer.award, racer.rollIndex);
+    racer.rollWait = ROLL_GAPS[racer.rollIndex];
+  }
+  return spun ? 'spin' : null;
 }
 
 function takeSlot(pool) {
@@ -134,7 +180,7 @@ export function resetItems(field) {
 }
 
 export function botWantsUse(racer, racers, track, time) {
-  if (!racer.item || racer.player || racer.finished || racer.ghost) return false;
+  if (!racer.item || racer.rolling || racer.player || racer.finished || racer.ghost) return false;
   if (racer.stun > 0.05) return false;
   const wait = 0.5 + ((racer.ai?.phase || 0) % 1) * 0.45;
   if (racer.itemTime < wait) return false;
@@ -155,8 +201,9 @@ export function botWantsUse(racer, racers, track, time) {
 
 export function useHeldItem(racer, field) {
   const id = racer.item;
-  if (!id || racer.finished) return null;
+  if (!id || racer.rolling || racer.finished) return null;
   racer.item = null;
+  racer.award = null;
   racer.itemTime = 0;
 
   if (id === 'pamonha') {
@@ -246,7 +293,14 @@ export function stepItems(field, racers, dt, track, opts = {}) {
   const time = opts.time || 0;
 
   for (const racer of racers) {
-    if (racer.finished || racer.ghost || !racer.item) continue;
+    if (racer.finished || racer.ghost) continue;
+    if (racer.rolling) {
+      const phase = advanceRoll(racer, dt);
+      if (phase === 'spin') opts.onSpin?.(racer, racer.item);
+      if (phase === 'land') opts.onLand?.(racer, racer.item);
+      continue;
+    }
+    if (!racer.item) continue;
     racer.itemTime += dt;
     const wants = racer.player ? !!opts.playerUse : botWantsUse(racer, racers, track, time);
     if (!wants) continue;
@@ -270,15 +324,14 @@ export function stepItems(field, racers, dt, track, opts = {}) {
   for (const box of field.boxes) {
     if (!box.alive) continue;
     for (const racer of racers) {
-      if (racer.finished || racer.ghost || racer.item) continue;
+      if (racer.finished || racer.ghost || racer.item || racer.rolling) continue;
       const dist = Math.hypot(racer.x - box.x, racer.z - box.z);
       if (dist > ITEM_RULES.pickupRadius) continue;
-      racer.item = rollItem(rng);
-      racer.itemTime = 0;
+      startRoll(racer, rollItem(rng));
       box.alive = false;
       box.cooldown = ITEM_RULES.respawn;
       box.pop = 0;
-      opts.onPickup?.(racer, racer.item);
+      opts.onPickup?.(racer, racer.award);
       break;
     }
   }

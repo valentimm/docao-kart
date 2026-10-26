@@ -12,6 +12,7 @@ import {
 } from '../src/drive.js';
 import {
   ITEM_RULES,
+  ITEM_ORDER,
   createItemField,
   stepItems,
   useHeldItem,
@@ -171,12 +172,15 @@ holder.item = null;
 rival.x = box.x + 0.2;
 rival.z = box.z;
 rival.item = null;
-stepItems(boxes, [holder, rival], 1 / 60, track, { rng: () => 0, playerUse: false, time: 0 });
-check(holder.item === 'pamonha', `caixa não deu pamonha (${holder.item})`);
-check(!rival.item, 'dois pilotos pegaram a mesma caixa');
+stepItems(boxes, [holder, rival], 1 / 60, track, { rng: () => 0, playerUse: true, time: 0 });
+check(holder.award === 'pamonha', `caixa não deu pamonha (${holder.award})`);
+check(holder.rolling, 'roleta não começou');
+check(useHeldItem(holder, boxes) == null, 'deu para usar no quadro da coleta');
+check(!holder.boostFrom, 'a coleta já soltou a pamonha');
+check(!rival.item && !rival.rolling, 'dois pilotos pegaram a mesma caixa');
 check(!box.alive, 'caixa não sumiu');
-stepItems(boxes, [holder, rival], 1 / 60, track, { rng: () => 0.9, playerUse: false, time: 0 });
-check(holder.item === 'pamonha', 'item trocou sozinho');
+stepItems(boxes, [holder, rival], 1 / 60, track, { rng: () => 0.9, playerUse: true, time: 0 });
+check(holder.award === 'pamonha' && holder.rolling, 'item trocou sozinho');
 check(!rival.item, 'caixa respawnou cedo demais');
 rival.x = 0;
 rival.z = 0;
@@ -186,8 +190,36 @@ check(holder.item === 'pamonha', 'quem já tinha item pegou outro');
 rival.x = box.x;
 rival.z = box.z;
 stepItems(boxes, [holder, rival], 1 / 60, track, { rng: () => 0.9, playerUse: false, time: 2 });
-check(rival.item === 'tomate', `segunda caixa não deu tomate (${rival.item})`);
-check(holder.item === 'pamonha', 'o item guardado sumiu');
+check(rival.award === 'tomate', `segunda caixa não deu tomate (${rival.award})`);
+check(rival.rolling, 'segunda caixa entregou na hora');
+check(holder.item === 'pamonha' && !holder.rolling, 'o item guardado sumiu');
+
+const wheel = createItemField(track);
+const spinner = spawnRacer(ROSTER[0], track, { row: 1, side: 1 });
+spinner.x = wheel.boxes[2].x;
+spinner.z = wheel.boxes[2].z;
+stepItems(wheel, [spinner], 1 / 60, track, { rng: () => 0.5, playerUse: true });
+check(spinner.award === 'casca' && spinner.rolling, 'roleta da casca não armou');
+const shown = new Set([spinner.item]);
+const gaps = [];
+let lastChange = 0;
+let elapsed = 0;
+while (spinner.rolling && elapsed < 3) {
+  const before = spinner.item;
+  stepItems(wheel, [spinner], 1 / 60, track, { playerUse: true, time: elapsed });
+  elapsed += 1 / 60;
+  if (spinner.boostFrom || !spinner.item) check(false, 'usou a casca com a roleta girando');
+  if (spinner.item !== before) {
+    shown.add(spinner.item);
+    gaps.push(elapsed - lastChange);
+    lastChange = elapsed;
+  }
+}
+check(!spinner.rolling && spinner.item === 'casca', 'roleta não parou na casca');
+check(shown.size === ITEM_ORDER.length, `roleta mostrou ${[...shown].join(', ')}`);
+check(gaps.length >= 4 && gaps[0] < gaps[gaps.length - 1], 'roleta não desacelerou');
+check(elapsed > 1 && elapsed < ITEM_RULES.roulette + 0.05, `roleta durou ${elapsed.toFixed(3)}s`);
+check(useHeldItem(spinner, wheel) === 'casca', 'casca não saiu depois da roleta');
 
 holder.itemTime = 1;
 holder.speed = 22;
@@ -267,6 +299,11 @@ check(!shooter.stunKind, 'tomate acertou quem atirou');
 
 const bot = spawnRacer(ROSTER[1], track, { row: 0, side: -1 });
 bot.item = 'pamonha';
+bot.award = 'pamonha';
+bot.rolling = true;
+bot.itemTime = 4;
+check(!botWantsUse(bot, [bot], track, 0), 'bot usou item com a roleta girando');
+bot.rolling = false;
 bot.itemTime = 0.2;
 check(!botWantsUse(bot, [bot], track, 0), 'bot usou item na hora');
 bot.itemTime = 3;

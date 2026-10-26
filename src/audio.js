@@ -87,6 +87,9 @@ export function createAudio() {
     pickup() {
       tone(660, 0.08, 'square', 0.05, 990);
     },
+    tick() {
+      tone(540, 0.035, 'square', 0.028, 760);
+    },
     toss() {
       tone(300, 0.09, 'square', 0.045, 150);
     },

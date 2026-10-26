@@ -198,8 +198,10 @@ function beginRace() {
   heldLabel = 'sem item';
   itemName.textContent = 'sem item';
   itemSlot.dataset.kind = 'none';
-  itemSlot.classList.remove('got');
-  useBtn.classList.remove('ready');
+  itemSlot.dataset.rolling = 'false';
+  itemSlot.classList.remove('got', 'tick');
+  useBtn.classList.remove('ready', 'rolling', 'tick');
+  useBtn.textContent = 'Item';
   snapCamera = true;
   resetItems(items);
   setLights(world.bulbs, 0);
@@ -340,10 +342,17 @@ function simulate(dt, tryUse) {
   stepItems(items, racers, dt, track, {
     time: raceTime,
     playerUse: !!tryUse,
-    onPickup(racer, id) {
-      burst(racer, ITEMS[id].tint, 0.9);
+    onPickup(racer) {
+      burst(racer, 0xff4f8b, 0.7);
+      if (racer.player) audio.pickup();
+    },
+    onSpin(racer) {
+      if (racer.player) audio.tick();
+    },
+    onLand(racer, id) {
+      burst(racer, ITEMS[id].tint, 1);
       if (!racer.player) return;
-      audio.pickup();
+      audio.blip();
       itemSlot.classList.remove('got');
       void itemSlot.offsetWidth;
       itemSlot.classList.add('got');
@@ -608,13 +617,25 @@ function updateHud() {
     });
   }
 
-  const label = player.item ? ITEMS[player.item].name : 'sem item';
+  const face = player.item;
+  const label = face ? ITEMS[face].name : 'sem item';
   if (label !== heldLabel) {
     heldLabel = label;
     itemName.textContent = label;
+    useBtn.textContent = face ? label : 'Item';
+    if (player.rolling) {
+      itemSlot.classList.remove('tick');
+      useBtn.classList.remove('tick');
+      void itemSlot.offsetWidth;
+      itemSlot.classList.add('tick');
+      useBtn.classList.add('tick');
+    }
   }
-  itemSlot.dataset.kind = player.item || 'none';
-  useBtn.classList.toggle('ready', !!player.item);
+  itemSlot.dataset.kind = face || 'none';
+  itemSlot.dataset.rolling = player.rolling ? 'true' : 'false';
+  useBtn.classList.toggle('rolling', !!player.rolling);
+  useBtn.classList.toggle('ready', !!face && !player.rolling);
+  useBtn.setAttribute('aria-busy', player.rolling ? 'true' : 'false');
 
   const showDrift = mode === 'race' && (player.drifting || player.driftTime > 0);
   driftBar.hidden = !showDrift;

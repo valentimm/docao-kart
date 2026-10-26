@@ -204,6 +204,19 @@ kbd {
 #item[data-kind="casca"] .gem { background: #ffe56a; }
 #item[data-kind="tomate"] .gem { background: #ef3d3d; }
 
+#item[data-rolling="true"] {
+  background: #fff4bf;
+  box-shadow: 0 0 0 3px #ff4f8b;
+}
+
+#item.tick,
+#use-item.tick { animation: slot 0.14s ease; }
+
+@keyframes slot {
+  0% { transform: translateY(8px); filter: blur(1px); }
+  100% { transform: none; filter: none; }
+}
+
 #item kbd {
   font-size: 12px;
   padding: 0 5px;
@@ -391,6 +404,7 @@ kbd {
 #touch .item-side { flex-direction: column; align-items: stretch; gap: 8px; }
 #touch .gas { background: #ffd84a; }
 #touch button#use-item.ready { background: #ff4f8b; color: #fffaf2; }
+#touch button#use-item.rolling { background: #fff4bf; }
 
 body[data-mode="race"] #touch,
 body[data-mode="countdown"] #touch {
