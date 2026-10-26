@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="description" content="Docão Kart — corrida arcade de kart com o porquinho Docão na feira da fazenda." />
+    <meta name="theme-color" content="#ff4f8b" />
+    <title>Docão Kart</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <button id="sound" type="button" aria-pressed="true">Som ligado</button>
+
+    <section id="menu">
+      <div class="card">
+        <p class="eyebrow">Feira da fazenda</p>
+        <h1>Docão Kart</h1>
+        <p class="tagline">Três voltas, quatro pilotos e um porquinho com pressa.</p>
+        <button id="play" class="play" type="button">Jogar</button>
+        <ul class="controls">
+          <li><kbd>W</kbd><kbd>↑</kbd> acelerar</li>
+          <li><kbd>S</kbd><kbd>↓</kbd> frear e ré</li>
+          <li><kbd>A</kbd><kbd>D</kbd><kbd>←</kbd><kbd>→</kbd> virar</li>
+          <li><kbd>Espaço</kbd> derrapar — solte para o impulso</li>
+          <li><kbd>Esc</kbd> pausar</li>
+        </ul>
+        <p class="hint">No celular, a pista acompanha a tela e os botões aparecem embaixo.</p>
+      </div>
+    </section>
+
+    <div id="hud" hidden>
+      <p id="position" class="pos">1º</p>
+      <div class="stack">
+        <div id="lap">Volta 1/3</div>
+        <div id="timer">0:00.00</div>
+        <div id="best">melhor —</div>
+        <div id="speed">0 km/h</div>
+      </div>
+      <ol id="order"></ol>
+      <div id="drift" hidden><div id="drift-fill"></div></div>
+    </div>
+
+    <canvas id="minimap" width="190" height="190" hidden></canvas>
+    <div id="wrong" hidden>Sentido errado</div>
+    <div id="callout" aria-live="polite"></div>
+    <div id="countdown" hidden>3</div>
+
+    <section id="results" hidden>
+      <div class="card">
+        <h2>Resultado</h2>
+        <p id="flavor"></p>
+        <ol id="standings"></ol>
+        <div class="actions">
+          <button id="again" class="play" type="button">Jogar de novo</button>
+          <button id="back" class="ghost" type="button">Menu</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="pause" hidden>
+      <div class="card">
+        <h2>Pausado</h2>
+        <p class="tagline">O Docão está esperando na cerca.</p>
+        <div class="actions">
+          <button id="resume" class="play" type="button">Continuar</button>
+          <button id="pause-menu" class="ghost" type="button">Menu</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="touch" aria-hidden="true">
+      <div class="cluster">
+        <button type="button" data-hold="left" aria-label="Virar à esquerda">◀</button>
+        <button type="button" data-hold="right" aria-label="Virar à direita">▶</button>
+      </div>
+      <div class="cluster">
+        <button type="button" data-hold="drift" aria-label="Derrapar">Derrapa</button>
+        <button type="button" data-hold="brake" aria-label="Frear">Freio</button>
+        <button type="button" class="gas" data-hold="gas" aria-label="Acelerar">Acelera</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

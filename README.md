@@ -1,2 +1,45 @@
-# docao-kart
-Docão Kart — corrida estilo Mario Kart com o mascote Docão
+# Docão Kart
+
+Corrida arcade de kart no navegador. O Docão, porquinho mascote, encara a pista da feira da fazenda contra o Milho, a Hortelã e a Jabuticaba.
+
+A pista, os karts e os porquinhos são feitos no código. O repositório fica leve, sem modelos pesados.
+
+## Como rodar
+
+```bash
+npm i
+npm run dev
+```
+
+Abre [http://localhost:5173](http://localhost:5173).
+
+Para gerar a versão de produção e abrir ela localmente:
+
+```bash
+npm run build
+npm run preview
+```
+
+O preview sobe em [http://localhost:4173](http://localhost:4173).
+
+## Como jogar
+
+No menu, **Jogar** começa a corrida de 3 voltas.
+
+- **W** ou **↑** acelera
+- **S** ou **↓** freia e, segurando, dá ré
+- **A D** ou **← →** viram
+- **Espaço** derrapa. Segure numa curva e solte para ganhar um impulso
+- **Esc** pausa
+
+O placar mostra a posição, a volta, o tempo e o minimapa. No celular a tela acompanha a janela, e botões de toque aparecem embaixo.
+
+## Publicar na Vercel
+
+O jogo é um site estático feito com Vite. Dá para conectar este repositório na Vercel com o build padrão:
+
+- Framework: Vite
+- Comando de build: `npm run build`
+- Pasta de saída: `dist`
+
+Não precisa de servidor nem de variáveis de ambiente.
