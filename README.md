@@ -24,15 +24,22 @@ O preview sobe em [http://localhost:4173](http://localhost:4173).
 
 ## Como jogar
 
-No menu, **Jogar** começa a corrida de 3 voltas.
+No menu, escolha o visual do Docão e **Jogar** começa a corrida de 3 voltas. A escolha fica salva neste navegador. O focinho, as orelhas e os olhos não mudam: só a roupa. Os outros pilotos usam visuais diferentes.
 
 - **W** ou **↑** acelera
 - **S** ou **↓** freia e, segurando, dá ré
 - **A D** ou **← →** viram
 - **Espaço** derrapa. Segure numa curva e solte para ganhar um impulso
+- **E** usa o item que você está carregando
 - **Esc** pausa
 
-O placar mostra a posição, a volta, o tempo e o minimapa. No celular a tela acompanha a janela, e botões de toque aparecem embaixo.
+Caixas girando na pista sorteiam um item. O placar gira entre os nomes e só então o item pode ser usado. Cada piloto segura um por vez. No celular, o botão **Item** mostra o sorteio e faz o mesmo que a tecla **E**.
+
+- **Pamonha** — arrancada curta
+- **Casca** — fica no chão, atrás de quem soltou. Quem passa por cima escorrega e perde velocidade
+- **Tomate** — sai para a frente e empurra o kart que acertar
+
+O placar mostra a posição, a volta, o tempo, o item na mão e o minimapa. No celular a tela acompanha a janela, e botões de toque aparecem embaixo.
 
 ## Publicar na Vercel
 

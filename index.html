@@ -17,12 +17,16 @@
         <p class="eyebrow">Feira da fazenda</p>
         <h1>Docão Kart</h1>
         <p class="tagline">Três voltas, quatro pilotos e um porquinho com pressa.</p>
+        <p class="skin-label" id="skin-label">Visual do Docão</p>
+        <canvas id="skin-stage" width="320" height="168" aria-labelledby="skin-label"></canvas>
+        <div id="skins" role="listbox" aria-labelledby="skin-label"></div>
         <button id="play" class="play" type="button">Jogar</button>
         <ul class="controls">
           <li><kbd>W</kbd><kbd>↑</kbd> acelerar</li>
           <li><kbd>S</kbd><kbd>↓</kbd> frear e ré</li>
           <li><kbd>A</kbd><kbd>D</kbd><kbd>←</kbd><kbd>→</kbd> virar</li>
           <li><kbd>Espaço</kbd> derrapar — solte para o impulso</li>
+          <li><kbd>E</kbd> usar o item da caixa</li>
           <li><kbd>Esc</kbd> pausar</li>
         </ul>
         <p class="hint">No celular, a pista acompanha a tela e os botões aparecem embaixo.</p>
@@ -36,6 +40,11 @@
         <div id="timer">0:00.00</div>
         <div id="best">melhor —</div>
         <div id="speed">0 km/h</div>
+        <div id="item" data-kind="none">
+          <i class="gem" aria-hidden="true"></i>
+          <span id="item-name">sem item</span>
+          <kbd>E</kbd>
+        </div>
       </div>
       <ol id="order"></ol>
       <div id="drift" hidden><div id="drift-fill"></div></div>
@@ -70,14 +79,17 @@
     </section>
 
     <div id="touch" aria-hidden="true">
-      <div class="cluster">
+      <div class="cluster steer">
         <button type="button" data-hold="left" aria-label="Virar à esquerda">◀</button>
         <button type="button" data-hold="right" aria-label="Virar à direita">▶</button>
       </div>
-      <div class="cluster">
-        <button type="button" data-hold="drift" aria-label="Derrapar">Derrapa</button>
-        <button type="button" data-hold="brake" aria-label="Frear">Freio</button>
-        <button type="button" class="gas" data-hold="gas" aria-label="Acelerar">Acelera</button>
+      <div class="cluster item-side">
+        <button id="use-item" type="button" data-press="item" aria-label="Usar item">Item</button>
+        <div class="row">
+          <button type="button" data-hold="drift" aria-label="Derrapar">Derrapa</button>
+          <button type="button" data-hold="brake" aria-label="Frear">Freio</button>
+          <button type="button" class="gas" data-hold="gas" aria-label="Acelerar">Acelera</button>
+        </div>
       </div>
     </div>
 

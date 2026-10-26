@@ -14,6 +14,8 @@ export const TUNING = {
   kartRadius: 1.15,
   boostMul: 1.2,
   boostDuration: 0.8,
+  itemBoostMul: 1.5,
+  itemAccel: 1.7,
   driftMin: 0.45,
 };
 
@@ -81,6 +83,16 @@ export function createRacer(def, pose) {
     driftTime: 0,
     drifting: false,
     boost: 0,
+    boostFrom: null,
+    item: null,
+    award: null,
+    rolling: false,
+    rollIndex: 0,
+    rollWait: 0,
+    itemTime: 0,
+    stun: 0,
+    stunKind: null,
+    stunDir: 1,
     stuckTime: 0,
     wallBump: 0,
     reverseTime: 0,
@@ -123,6 +135,16 @@ export function resetRacer(racer) {
   racer.driftTime = 0;
   racer.drifting = false;
   racer.boost = 0;
+  racer.boostFrom = null;
+  racer.item = null;
+  racer.award = null;
+  racer.rolling = false;
+  racer.rollIndex = 0;
+  racer.rollWait = 0;
+  racer.itemTime = 0;
+  racer.stun = 0;
+  racer.stunKind = null;
+  racer.stunDir = 1;
   racer.stuckTime = 0;
   racer.wallBump = 0;
   racer.reverseTime = 0;
@@ -172,32 +194,83 @@ export function aiInput(racer, track, time) {
   return { throttle, brake, reverse: false, steer, drift };
 }
 
+/** A casca spins the kart out. A tomate only knocks it off its line. */
+export function stumble(racer, kind, dir = 1) {
+  if (!racer || racer.finished || racer.ghost) return false;
+  if (racer.stun > 0.2) return false;
+  racer.drifting = false;
+  racer.driftTime = 0;
+  racer.boost = 0;
+  racer.boostFrom = null;
+  racer.stunDir = dir >= 0 ? 1 : -1;
+  racer.stunKind = kind;
+  if (kind === 'casca') {
+    racer.stun = 0.85;
+    racer.speed *= 0.34;
+    racer.slide = racer.stunDir * 7;
+    return true;
+  }
+  racer.stun = 0.42;
+  racer.speed *= 0.62;
+  racer.slide = racer.stunDir * 5;
+  racer.x += Math.cos(racer.yaw) * racer.stunDir * 0.45;
+  racer.z -= Math.sin(racer.yaw) * racer.stunDir * 0.45;
+  return true;
+}
+
 export function stepRacer(racer, input, dt, track, ctx) {
   racer.wallBump = Math.max(0, racer.wallBump - dt);
+  const spinning = racer.stunKind === 'casca' && racer.stun > 0;
+  const knocked = racer.stunKind === 'tomate' && racer.stun > 0;
+  if (racer.stun > 0) racer.stun = Math.max(0, racer.stun - dt);
+  if (racer.stun <= 0) racer.stunKind = null;
+
   if (racer.finished) {
+    racer.stun = 0;
+    racer.stunKind = null;
+    racer.item = null;
+    racer.award = null;
+    racer.rolling = false;
     parkFinished(racer, dt, track);
     return;
   }
 
-  const throttle = input.throttle || 0;
-  const brake = input.brake || 0;
-  const steerIn = clamp(input.steer || 0, -1, 1);
+  let throttle = input.throttle || 0;
+  let brake = input.brake || 0;
+  let reverse = !!input.reverse;
+  let steerIn = clamp(input.steer || 0, -1, 1);
+  if (spinning) {
+    throttle = 0;
+    brake = 1;
+    reverse = false;
+    steerIn = 0;
+    racer.yaw += (racer.stunDir || 1) * 9 * dt;
+  } else if (knocked) {
+    throttle *= 0.35;
+    steerIn *= 0.25;
+    racer.yaw += (racer.stunDir || 1) * 4.2 * dt;
+  }
   racer.steer = steerIn;
 
-  const wantDrift = !!input.drift && racer.speed > 9 && Math.abs(steerIn) > 0.1;
+  const wantDrift = !spinning && !knocked && !!input.drift && racer.speed > 9 && Math.abs(steerIn) > 0.1;
   if (wantDrift) {
     racer.drifting = true;
     racer.driftTime += dt;
   } else if (racer.drifting) {
-    if (racer.driftTime >= TUNING.driftMin) racer.boost = TUNING.boostDuration;
+    if (racer.driftTime >= TUNING.driftMin && racer.boostFrom !== 'pamonha') {
+      racer.boost = TUNING.boostDuration;
+      racer.boostFrom = 'drift';
+    }
     racer.drifting = false;
     racer.driftTime = 0;
   }
   if (racer.boost > 0) racer.boost = Math.max(0, racer.boost - dt);
+  if (racer.boost <= 0) racer.boostFrom = null;
 
+  const itemBoost = racer.boostFrom === 'pamonha';
   const pace = racer.player ? 1 : (racer.ai?.pace || 1) * (racer.paceMul || 1);
-  const speedCap =
-    TUNING.maxSpeed * pace * (racer.boost > 0 ? TUNING.boostMul : 1) * (racer.drifting ? 0.94 : 1);
+  const boostMul = racer.boost > 0 ? (itemBoost ? TUNING.itemBoostMul : TUNING.boostMul) : 1;
+  const speedCap = TUNING.maxSpeed * pace * boostMul * (racer.drifting ? 0.94 : 1);
 
   let target = 0;
   let rate = TUNING.coast;
@@ -205,7 +278,7 @@ export function stepRacer(racer, input, dt, track, ctx) {
     if (racer.speed > 0.45) {
       target = 0;
       rate = TUNING.brake;
-    } else if (input.reverse) {
+    } else if (reverse) {
       target = -TUNING.reverseMax;
       rate = TUNING.accel;
     } else {
@@ -214,7 +287,7 @@ export function stepRacer(racer, input, dt, track, ctx) {
     }
   } else if (throttle > 0) {
     target = speedCap * clamp(throttle, 0, 1);
-    rate = TUNING.accel * (racer.drifting ? 0.62 : 1);
+    rate = TUNING.accel * (racer.drifting ? 0.62 : 1) * (itemBoost ? TUNING.itemAccel : 1);
   }
 
   racer.speed += clamp(target - racer.speed, -rate * dt, rate * dt);
@@ -246,7 +319,8 @@ export function stepRacer(racer, input, dt, track, ctx) {
   racer.lateral = proj.lateral;
   applyProgress(racer, proj.s, dt, ctx);
 
-  if (racer.speed < 1.5 && Math.abs(racer.lateral) > track.halfWidth - 2.4) racer.stuckTime += dt;
+  if (spinning) racer.stuckTime = 0;
+  else if (racer.speed < 1.5 && Math.abs(racer.lateral) > track.halfWidth - 2.4) racer.stuckTime += dt;
   else racer.stuckTime = Math.max(0, racer.stuckTime - dt * 2);
 
   if (racer.stuckTime > 0.55 && racer.speed < 3) {
@@ -328,6 +402,7 @@ export function applyProgress(racer, s, dt, ctx) {
 function parkFinished(racer, dt, track) {
   racer.drifting = false;
   racer.boost = 0;
+  racer.boostFrom = null;
   racer.speed = Math.max(0, racer.speed - 30 * dt);
   racer.slide = 0;
   if (racer.speed <= 0.4) {

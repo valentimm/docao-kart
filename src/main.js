@@ -1,6 +1,8 @@
 import './style.css';
 import { buildTrack } from './track.js';
 import { ROSTER, TOTAL_LAPS, FLAVOR } from './roster.js';
+import { SKINS, SKIN_STORAGE, assignSkins, getSkin } from './skins.js';
+import { createSkinStage } from './docao.js';
 import {
   spawnRacer,
   resetRacer,
@@ -12,6 +14,8 @@ import {
 } from './drive.js';
 import { createWorld, createKartView, setLights } from './scene.js';
 import { createAudio } from './audio.js';
+import { ITEMS, createItemField, resetItems, stepItems } from './items.js';
+import { createItemView } from './itemView.js';
 
 const STEP = 1 / 60;
 const EMPTY = { throttle: 0, brake: 0, reverse: false, steer: 0, drift: false };
@@ -33,6 +37,9 @@ const speedEl = document.querySelector('#speed');
 const orderEl = document.querySelector('#order');
 const driftBar = document.querySelector('#drift');
 const driftFill = document.querySelector('#drift-fill');
+const itemSlot = document.querySelector('#item');
+const itemName = document.querySelector('#item-name');
+const useBtn = document.querySelector('#use-item');
 const flavorEl = document.querySelector('#flavor');
 const standingsEl = document.querySelector('#standings');
 const soundBtn = document.querySelector('#sound');
@@ -51,12 +58,39 @@ const racers = [
 const player = racers.find((racer) => racer.player);
 
 const world = createWorld(canvas, track);
+const items = createItemField(track);
+const itemView = createItemView(world.scene, items, racers);
 const views = new Map();
 for (const racer of racers) {
   const view = createKartView(racer);
   world.scene.add(view.group);
   world.scene.add(view.blob);
   views.set(racer, view);
+}
+const skinStage = createSkinStage(document.querySelector('#skin-stage'));
+let playerSkin = 'classico';
+
+function readSkin() {
+  try {
+    return localStorage.getItem(SKIN_STORAGE);
+  } catch {
+    return null;
+  }
+}
+
+function dressField(id) {
+  playerSkin = getSkin(id).id;
+  try {
+    localStorage.setItem(SKIN_STORAGE, playerSkin);
+  } catch {
+    /* ignore private mode */
+  }
+  const map = assignSkins(playerSkin);
+  for (const racer of racers) views.get(racer).setSkin(map[racer.id]);
+  skinStage.show(playerSkin);
+  document.querySelectorAll('#skins button').forEach((button) => {
+    button.setAttribute('aria-selected', button.dataset.skin === playerSkin ? 'true' : 'false');
+  });
 }
 
 const audio = createAudio();
@@ -84,6 +118,8 @@ let snapCamera = true;
 let last = performance.now();
 let orderKey = '';
 let boostLatch = false;
+let useEdge = false;
+let heldLabel = 'sem item';
 const clock = { raceTime: 0, totalLaps: TOTAL_LAPS };
 
 const map = mapSpace();
@@ -99,6 +135,18 @@ window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', (event) => keys.delete(event.code));
 window.addEventListener('blur', () => keys.clear());
 
+const skinList = document.querySelector('#skins');
+for (const skin of SKINS) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.skin = skin.id;
+  button.textContent = skin.name;
+  button.setAttribute('role', 'option');
+  button.addEventListener('click', () => dressField(skin.id));
+  skinList.append(button);
+}
+dressField(readSkin());
+
 document.querySelector('#play').addEventListener('click', () => beginRace());
 document.querySelector('#again').addEventListener('click', () => beginRace());
 document.querySelector('#back').addEventListener('click', () => showMenu());
@@ -110,11 +158,16 @@ for (const button of document.querySelectorAll('#touch button')) {
   const name = button.dataset.hold;
   const down = (event) => {
     event.preventDefault();
+    if (button.dataset.press === 'item') {
+      if (mode === 'race') useEdge = true;
+      return;
+    }
     touch[name] = true;
   };
   const up = (event) => {
     event.preventDefault();
-    touch[name] = false;
+    button.blur();
+    if (name) touch[name] = false;
   };
   button.addEventListener('pointerdown', down);
   button.addEventListener('pointerup', up);
@@ -130,6 +183,7 @@ function onKeyDown(event) {
   }
   keys.add(event.code);
   if (event.repeat) return;
+  if (event.code === 'KeyE' && mode === 'race') useEdge = true;
   if (event.code === 'Escape') onEscape();
   if (event.code === 'Enter' && mode === 'menu') beginRace();
 }
@@ -179,7 +233,16 @@ function beginRace() {
   acc = 0;
   orderKey = '';
   boostLatch = false;
+  useEdge = false;
+  heldLabel = 'sem item';
+  itemName.textContent = 'sem item';
+  itemSlot.dataset.kind = 'none';
+  itemSlot.dataset.rolling = 'false';
+  itemSlot.classList.remove('got', 'tick');
+  useBtn.classList.remove('ready', 'rolling', 'tick');
+  useBtn.textContent = 'Item';
   snapCamera = true;
+  resetItems(items);
   setLights(world.bulbs, 0);
   results.hidden = true;
   pauseEl.hidden = true;
@@ -215,6 +278,8 @@ function showMenu() {
   countdownEl.hidden = true;
   wrong.hidden = true;
   setLights(world.bulbs, 0);
+  resetItems(items);
+  for (const racer of racers) racer.item = null;
   audio.quiet();
   Object.keys(touch).forEach((key) => {
     touch[key] = false;
@@ -272,7 +337,12 @@ function readInput() {
   };
 }
 
-function simulate(dt) {
+function burst(racer, color, power) {
+  world.effects.spark(racer.x, 0.7, racer.z, color, power);
+  world.effects.spark(racer.x, 1.05, racer.z, color, power * 0.75);
+}
+
+function simulate(dt, tryUse) {
   raceTime += dt;
   clock.raceTime = raceTime;
   for (const racer of racers) {
@@ -308,6 +378,52 @@ function simulate(dt) {
     });
   }
   separate(racers, track);
+  stepItems(items, racers, dt, track, {
+    time: raceTime,
+    playerUse: !!tryUse,
+    onPickup(racer) {
+      burst(racer, 0xff4f8b, 0.7);
+      if (racer.player) audio.pickup();
+    },
+    onSpin(racer) {
+      if (racer.player) audio.tick();
+    },
+    onLand(racer, id) {
+      burst(racer, ITEMS[id].tint, 1);
+      if (!racer.player) return;
+      audio.blip();
+      itemSlot.classList.remove('got');
+      void itemSlot.offsetWidth;
+      itemSlot.classList.add('got');
+    },
+    onUse(racer, id) {
+      burst(racer, ITEMS[id].tint, 1);
+      if (!racer.player) return;
+      if (id === 'pamonha') {
+        boostLatch = true;
+        showCallout('Pamonha!');
+        audio.boost();
+      } else if (id === 'casca') {
+        showCallout('Casca!');
+        audio.toss();
+      } else {
+        showCallout('Tomate!');
+        audio.toss();
+      }
+    },
+    onSlip(racer) {
+      burst(racer, ITEMS.casca.tint, 1.1);
+      if (!racer.player) return;
+      showCallout('Escorregou!');
+      audio.slip();
+    },
+    onKnock(racer) {
+      burst(racer, ITEMS.tomate.tint, 1.15);
+      if (!racer.player) return;
+      showCallout('Toma!');
+      audio.thud();
+    },
+  });
 }
 
 function updateCountdown(dt) {
@@ -341,14 +457,21 @@ function frame(now) {
   if (mode === 'countdown') updateCountdown(dt);
   if (mode === 'race' || mode === 'arrived') {
     acc += dt;
+    let tryUse = false;
+    if (mode === 'race' && useEdge) {
+      tryUse = true;
+      useEdge = false;
+    }
     let guard = 0;
     while (acc >= STEP && guard < 5) {
-      simulate(STEP);
+      simulate(STEP, tryUse);
+      tryUse = false;
       acc -= STEP;
       guard += 1;
     }
   } else {
     acc = 0;
+    useEdge = false;
   }
 
   if (mode === 'arrived') {
@@ -358,6 +481,7 @@ function frame(now) {
 
   const time = now / 1000;
   layoutRacers(time, dt);
+  itemView.update(items, racers, time);
   updateCamera(dt, time);
   updateHud();
   drawMinimap();
@@ -365,14 +489,22 @@ function frame(now) {
   world.updateClouds(dt);
   if (mode === 'race' || mode === 'arrived') {
     audio.engine(player.speed, player.drifting, player.boost > 0);
-    if (player.boost > 0.7 && !boostLatch) {
+    if (player.boost > 0.7 && !boostLatch && player.boostFrom !== 'pamonha') {
       boostLatch = true;
       showCallout('Impulso!');
       audio.boost();
     }
+    for (const shot of items.shots) {
+      if (!shot.active) continue;
+      shot.trail += dt;
+      if (shot.trail < 0.05) continue;
+      shot.trail = 0;
+      world.effects.spark(shot.x, 0.55, shot.z, ITEMS.tomate.tint, 0.4);
+    }
     if (player.boost <= 0) boostLatch = false;
   }
   world.renderer.render(world.scene, world.camera);
+  if (mode === 'menu') skinStage.render();
   requestAnimationFrame(frame);
 }
 
@@ -415,6 +547,21 @@ function layoutRacers(time = 0, dt = 0) {
     }
     if (racer.player && racer.wallBump > 0.22) {
       world.effects.spark(racer.x, 0.6, racer.z, 0xffe27a, 1);
+    }
+    if (racer.boostFrom === 'pamonha') {
+      view.sparkAcc += dt;
+      if (view.sparkAcc > 0.07) {
+        view.sparkAcc = 0;
+        const fx = Math.sin(racer.yaw);
+        const fz = Math.cos(racer.yaw);
+        world.effects.spark(racer.x - fx * 1.05, 0.35, racer.z - fz * 1.05, ITEMS.pamonha.tint, 0.55);
+      }
+    } else if (racer.stunKind === 'casca') {
+      view.sparkAcc += dt;
+      if (view.sparkAcc > 0.06) {
+        view.sparkAcc = 0;
+        world.effects.spark(racer.x, 0.5, racer.z, ITEMS.casca.tint, 0.75);
+      }
     }
   }
 }
@@ -470,6 +617,11 @@ function updateCamera(dt, time) {
       camPos.x += Math.sin(time * 46) * 0.14 * Math.min(1, player.wallBump * 3);
       camPos.y += Math.cos(time * 38) * 0.08 * Math.min(1, player.wallBump * 3);
     }
+    if (player.stun > 0) {
+      const mag = player.stunKind === 'casca' ? 0.22 : 0.1;
+      camPos.x += Math.sin(time * 42) * mag;
+      camPos.y += Math.cos(time * 36) * mag * 0.4;
+    }
     const targetFov = 63 + Math.min(9, Math.abs(player.speed) * 0.22) + (player.boost > 0 ? 4.5 : 0);
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
     camera.updateProjectionMatrix();
@@ -504,6 +656,26 @@ function updateHud() {
       orderEl.append(li);
     });
   }
+
+  const face = player.item;
+  const label = face ? ITEMS[face].name : 'sem item';
+  if (label !== heldLabel) {
+    heldLabel = label;
+    itemName.textContent = label;
+    useBtn.textContent = face ? label : 'Item';
+    if (player.rolling) {
+      itemSlot.classList.remove('tick');
+      useBtn.classList.remove('tick');
+      void itemSlot.offsetWidth;
+      itemSlot.classList.add('tick');
+      useBtn.classList.add('tick');
+    }
+  }
+  itemSlot.dataset.kind = face || 'none';
+  itemSlot.dataset.rolling = player.rolling ? 'true' : 'false';
+  useBtn.classList.toggle('rolling', !!player.rolling);
+  useBtn.classList.toggle('ready', !!face && !player.rolling);
+  useBtn.setAttribute('aria-busy', player.rolling ? 'true' : 'false');
 
   const showDrift = mode === 'race' && (player.drifting || player.driftTime > 0);
   driftBar.hidden = !showDrift;
@@ -563,6 +735,11 @@ function drawMinimap() {
   mapCtx.moveTo(map.X(finish.x - finish.nx * 5), map.Y(finish.z - finish.nz * 5));
   mapCtx.lineTo(map.X(finish.x + finish.nx * 5), map.Y(finish.z + finish.nz * 5));
   mapCtx.stroke();
+  for (const box of items.boxes) {
+    if (!box.alive) continue;
+    mapCtx.fillStyle = '#ff4f8b';
+    mapCtx.fillRect(map.X(box.x) - 2.5, map.Y(box.z) - 2.5, 5, 5);
+  }
   for (const racer of racers) {
     mapCtx.beginPath();
     mapCtx.fillStyle = racer.minimap;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { poseAt, project } from './track.js';
+import { makeDocao, toonKart } from './docao.js';
 
 function lambert(color) {
   return new THREE.MeshLambertMaterial({ color });
@@ -29,46 +30,53 @@ function roadTexture(track) {
   const visual = track.halfWidth + track.shoulder;
   const shoulderFrac = track.shoulder / (2 * visual);
   const tex = canvasTexture(128, 256, (g, w, h) => {
-    g.fillStyle = '#d8b07a';
+    const curb = Math.max(22, Math.round(h * shoulderFrac));
+    g.fillStyle = '#e2b56b';
     g.fillRect(0, 0, w, h);
-    g.fillStyle = '#c49a62';
-    g.fillRect(0, 0, w, 18);
-    g.fillRect(0, h - 18, w, 18);
-    const band = Math.max(8, Math.round(h * shoulderFrac));
-    for (let x = 0; x < w; x += 16) {
-      g.fillStyle = (x / 16) % 2 === 0 ? '#ff4f8b' : '#ffe27a';
-      g.fillRect(x, 0, 16, band);
-      g.fillRect(x, h - band, 16, band);
+    g.fillStyle = '#f3d7a0';
+    g.fillRect(0, curb + 18, w, h - (curb + 18) * 2);
+    g.fillStyle = '#c9954e';
+    g.fillRect(0, curb, w, 16);
+    g.fillRect(0, h - curb - 16, w, 16);
+    for (let x = 0; x < w; x += 32) {
+      g.fillStyle = (x / 32) % 2 === 0 ? '#ff4f8b' : '#ffe27a';
+      g.fillRect(x, 0, 32, curb);
+      g.fillRect(x, h - curb, 32, curb);
     }
-    g.fillStyle = '#fff6e4';
-    g.fillRect(0, band + 3, w, 4);
-    g.fillRect(0, h - band - 7, w, 4);
-    g.fillStyle = 'rgba(120, 78, 40, 0.16)';
-    g.fillRect(0, h * 0.42, w, 3);
-    g.fillRect(0, h * 0.56, w, 3);
-    g.fillStyle = '#f7ead2';
-    g.fillRect(18, h * 0.47, 46, 14);
+    g.fillStyle = '#fffaf2';
+    g.fillRect(0, curb, w, 7);
+    g.fillRect(0, h - curb - 7, w, 7);
+    g.fillRect(8, h * 0.5 - 6, 72, 12);
   });
   tex.wrapS = THREE.RepeatWrapping;
   tex.anisotropy = 8;
   return tex;
 }
 
-function grassTexture() {
-  const tex = canvasTexture(128, 128, (g) => {
-    g.fillStyle = '#67bf49';
-    g.fillRect(0, 0, 128, 128);
-    const rand = rng(11);
-    for (let i = 0; i < 220; i += 1) {
-      g.fillStyle = rand() > 0.55 ? '#86d465' : '#4ea338';
-      const s = 2 + rand() * 4;
-      g.fillRect(rand() * 128, rand() * 128, s, s);
-    }
-  });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(32, 32);
-  return tex;
+function addMeadow(scene) {
+  const geo = new THREE.PlaneGeometry(460, 460, 28, 28);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const base = new THREE.Color(0x5cbf48);
+  const light = new THREE.Color(0x6bc956);
+  const shade = new THREE.Color(0x52b040);
+  const color = new THREE.Color();
+  for (let i = 0; i < pos.count; i += 1) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const n = Math.sin(x * 0.008 + 0.6) * 0.7 + Math.sin(z * 0.007 + 1.3) * 0.55;
+    if (n > 0.45) color.copy(base).lerp(light, Math.min(1, (n - 0.45) / 0.7));
+    else if (n < -0.5) color.copy(base).lerp(shade, Math.min(1, (-0.5 - n) / 0.7));
+    else color.copy(base);
+    colors[i * 3] = color.r;
+    colors[i * 3 + 1] = color.g;
+    colors[i * 3 + 2] = color.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  mesh.receiveShadow = true;
+  scene.add(mesh);
 }
 
 function stripeTexture() {
@@ -125,40 +133,34 @@ function buildRoad(track) {
   return mesh;
 }
 
-function buildWall(track, side) {
+function addRail(scene, track, side, y, height, thick, color) {
   const pts = track.points;
   const n = pts.length;
-  const lat = side * (track.halfWidth + 0.05);
+  const lat = side * (track.halfWidth + 0.02);
   const positions = [];
-  const colors = [];
   const indices = [];
   for (let i = 0; i < n; i += 1) {
     const p = pts[i];
-    positions.push(p.x + p.nx * lat, 0, p.z + p.nz * lat, p.x + p.nx * lat, 1.05, p.z + p.nz * lat);
-    const plank = Math.floor(p.dist / 2.2) % 2 === 0;
-    const low = plank ? [0.93, 0.71, 0.45] : [0.8, 0.55, 0.32];
-    const high = plank ? [1, 0.45, 0.68] : [1, 0.86, 0.42];
-    colors.push(...low, ...high);
+    const ox = p.x + p.nx * (lat + side * thick);
+    const oz = p.z + p.nz * (lat + side * thick);
+    const ix = p.x + p.nx * lat;
+    const iz = p.z + p.nz * lat;
+    positions.push(ox, y, oz, ox, y + height, oz, ix, y + height, iz, ix, y, iz);
   }
   for (let i = 0; i < n; i += 1) {
-    const a = i * 2;
-    const b = a + 1;
-    const c = ((i + 1) % n) * 2;
-    const d = c + 1;
-    indices.push(a, c, b, b, c, d);
+    const a = i * 4;
+    const b = ((i + 1) % n) * 4;
+    indices.push(a, b, a + 1, a + 1, b, b + 1);
+    indices.push(a + 1, b + 1, a + 2, a + 2, b + 1, b + 2);
+    indices.push(a + 3, a + 2, b + 3, b + 3, a + 2, b + 2);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
-  );
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }));
   mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
+  scene.add(mesh);
 }
 
 const _dummy = new THREE.Object3D();
@@ -177,18 +179,28 @@ function paintInstances(scene, geometry, material, items) {
   scene.add(mesh);
 }
 
-function addPosts(scene, track) {
+function addFence(scene, track) {
+  for (const side of [1, -1]) {
+    addRail(scene, track, side, 0, 0.28, 0.1, 0xc9844a);
+    addRail(scene, track, side, 0.52, 0.1, 0.08, 0xf3d7a4);
+    addRail(scene, track, side, 0.98, 0.12, 0.1, 0xff4f8b);
+  }
   const posts = [];
+  const caps = [];
   const pts = track.points;
-  for (let i = 0; i < pts.length; i += 4) {
+  for (let i = 0; i < pts.length; i += 3) {
     const p = pts[i];
     if (p.s < 0.015 || p.s > 0.985) continue;
     for (const side of [1, -1]) {
-      const lat = side * (track.halfWidth + 0.02);
-      posts.push({ x: p.x + p.nx * lat, y: 0.72, z: p.z + p.nz * lat });
+      const lat = side * (track.halfWidth + 0.06);
+      const x = p.x + p.nx * lat;
+      const z = p.z + p.nz * lat;
+      posts.push({ x, y: 0.78, z, ry: p.yaw });
+      caps.push({ x, y: 1.62, z, ry: p.yaw });
     }
   }
-  paintInstances(scene, new THREE.BoxGeometry(0.28, 1.45, 0.28), lambert(0x8a4b2a), posts);
+  paintInstances(scene, new THREE.BoxGeometry(0.34, 1.56, 0.2), lambert(0x6b3a22), posts);
+  paintInstances(scene, new THREE.BoxGeometry(0.46, 0.1, 0.3), lambert(0xfff6e4), caps);
 }
 
 function labelTexture(text, fill) {
@@ -229,112 +241,15 @@ function geos() {
   shared.wheel.rotateZ(Math.PI / 2);
   shared.hub = new THREE.CylinderGeometry(0.14, 0.14, 0.26, 10);
   shared.hub.rotateZ(Math.PI / 2);
-  shared.body = new THREE.SphereGeometry(0.58, 16, 12);
-  shared.head = new THREE.SphereGeometry(0.4, 16, 12);
-  shared.snout = new THREE.SphereGeometry(0.2, 12, 10);
-  shared.nostril = new THREE.SphereGeometry(0.035, 6, 6);
-  shared.ear = new THREE.SphereGeometry(0.18, 8, 8);
-  shared.eye = new THREE.SphereGeometry(0.07, 8, 8);
-  shared.pupil = new THREE.SphereGeometry(0.034, 6, 6);
-  shared.cheek = new THREE.SphereGeometry(0.07, 8, 8);
   return shared;
 }
 
-function makePig(def) {
-  const g = geos();
-  const group = new THREE.Group();
-  const skin = lambert(def.pig);
-  const snoutMat = lambert(def.snout);
-  const earMat = lambert(def.ear);
-  const dark = lambert(0x5c3317);
-  const white = lambert(0xfffaf3);
-  const blush = lambert(0xff8fab);
-
-  const body = new THREE.Mesh(g.body, skin);
-  body.scale.set(1.05, 0.88, 1.22);
-  body.position.y = 0.42;
-  group.add(body);
-
-  const head = new THREE.Mesh(g.head, skin);
-  head.position.set(0, 0.92, 0.42);
-  group.add(head);
-
-  const snout = new THREE.Mesh(g.snout, snoutMat);
-  snout.scale.set(1.15, 0.82, 0.7);
-  snout.position.set(0, 0.84, 0.74);
-  group.add(snout);
-
-  for (const x of [-0.07, 0.07]) {
-    const nostril = new THREE.Mesh(g.nostril, dark);
-    nostril.position.set(x, 0.84, 0.86);
-    group.add(nostril);
-  }
-
-  for (const side of [-1, 1]) {
-    const ear = new THREE.Mesh(g.ear, earMat);
-    ear.scale.set(0.55, 1.15, 0.28);
-    ear.position.set(0.26 * side, 1.24, 0.32);
-    ear.rotation.z = side * -0.5;
-    group.add(ear);
-    const inner = new THREE.Mesh(g.ear, blush);
-    inner.scale.set(0.28, 0.7, 0.16);
-    inner.position.set(0.26 * side, 1.22, 0.38);
-    inner.rotation.z = side * -0.5;
-    group.add(inner);
-
-    const eye = new THREE.Mesh(g.eye, white);
-    eye.position.set(0.15 * side, 0.98, 0.72);
-    group.add(eye);
-    const pupil = new THREE.Mesh(g.pupil, dark);
-    pupil.position.set(0.16 * side, 0.97, 0.78);
-    group.add(pupil);
-    const cheek = new THREE.Mesh(g.cheek, blush);
-    cheek.position.set(0.24 * side, 0.84, 0.62);
-    group.add(cheek);
-  }
-
-  const band = new THREE.Mesh(
-    new THREE.TorusGeometry(0.28, 0.045, 6, 12),
-    lambert(def.bandana),
-  );
-  band.position.set(0, 0.72, 0.38);
-  band.rotation.x = Math.PI / 2.3;
-  group.add(band);
-
-  if (def.hat === 'straw') {
-    const straw = lambert(0xf0d48a);
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.05, 12), straw);
-    brim.position.set(0, 1.32, 0.36);
-    group.add(brim);
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.2, 10), lambert(0xffe7a8));
-    top.position.set(0, 1.44, 0.36);
-    group.add(top);
-  } else if (def.hat === 'bow') {
-    const bowMat = lambert(def.bandana);
-    for (const side of [-1, 1]) {
-      const lobe = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), bowMat);
-      lobe.scale.set(1.3, 0.8, 0.5);
-      lobe.position.set(0.12 * side, 1.28, 0.36);
-      group.add(lobe);
-    }
-    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), lambert(0xfff6e4));
-    knot.position.set(0, 1.28, 0.4);
-    group.add(knot);
-  }
-
-  const tail = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.028, 6, 10, Math.PI * 1.4), blush);
-  tail.position.set(0, 0.48, -0.48);
-  tail.rotation.y = Math.PI;
-  group.add(tail);
-  return group;
-}
-
-export function createKartView(def) {
+export function createKartView(def, skinId = 'classico') {
   const group = new THREE.Group();
   group.rotation.order = 'YXZ';
-  const bodyMat = lambert(def.body);
-  const accentMat = lambert(def.accent);
-  const dark = lambert(0x3a2a24);
+  const bodyMat = toonKart(def.body);
+  const accentMat = toonKart(def.accent);
+  const dark = toonKart(0x3a2a24);
   const tireMat = lambert(0x2c2422);
 
   const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.32, 2.05), bodyMat);
@@ -394,20 +309,27 @@ export function createKartView(def) {
     wheels.push({ pivot, spin: tire, front: spot.front, hub });
   }
 
-  const pig = makePig(def);
-  pig.position.set(0, 0.62, -0.12);
-  group.add(pig);
+  let pig = null;
+  let pigBase = 0.48;
+  const mountPig = (id) => {
+    if (pig) group.remove(pig);
+    pig = makeDocao(id, { seated: true });
+    pig.scale.setScalar(0.5);
+    pig.position.set(0, pigBase, 0.05);
+    group.add(pig);
+  };
+  mountPig(skinId);
 
   let flag = null;
   if (def.player) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.7, 5), lambert(0x6b3a22));
-    pole.position.set(-0.15, 1.25, -0.72);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.55, 5), lambert(0x6b3a22));
+    pole.position.set(-0.62, 0.95, -0.95);
     group.add(pole);
     flag = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.4, 0.24),
+      new THREE.PlaneGeometry(0.36, 0.22),
       new THREE.MeshBasicMaterial({ color: def.accent, side: THREE.DoubleSide }),
     );
-    flag.position.set(0.12, 1.5, -0.72);
+    flag.position.set(-0.4, 1.12, -0.95);
     group.add(flag);
   }
 
@@ -425,7 +347,7 @@ export function createKartView(def) {
     }),
   );
   sprite.scale.set(def.player ? 2.6 : 2.2, 0.65, 1);
-  sprite.position.y = 2.25;
+  sprite.position.y = 2.05;
   sprite.renderOrder = 5;
   group.add(sprite);
 
@@ -434,14 +356,22 @@ export function createKartView(def) {
     group,
     blob,
     wheels,
-    pig,
-    pigBase: pig.position.y,
+    get pig() {
+      return pig;
+    },
+    get pigBase() {
+      return pigBase;
+    },
+    setSkin(id) {
+      mountPig(id);
+    },
     flag,
     spin: 0,
     hop: 0,
     boosting: false,
     phase: Math.random() * 6,
     skidAcc: 0,
+    sparkAcc: 0,
   };
 }
 
@@ -643,8 +573,16 @@ function dressTrack(scene, track) {
     petals.push({ x, y: 1.28, z });
     seeds.push({ x, y: 1.34, z });
   }
-  paintInstances(scene, new THREE.CylinderGeometry(0.16, 0.28, 1.6, 6), lambert(0x8a5430), trunks);
-  paintInstances(scene, new THREE.SphereGeometry(1, 7, 6), lambert(0x4ea83c), crowns);
+  const leaves = canvasTexture(64, 64, (g) => {
+    const shade = g.createRadialGradient(24, 18, 4, 32, 32, 32);
+    shade.addColorStop(0, '#b6ee78');
+    shade.addColorStop(0.55, '#5cbf45');
+    shade.addColorStop(1, '#2f8a32');
+    g.fillStyle = shade;
+    g.fillRect(0, 0, 64, 64);
+  });
+  paintInstances(scene, new THREE.CylinderGeometry(0.16, 0.28, 1.6, 6), lambert(0xa86a3a), trunks);
+  paintInstances(scene, new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ map: leaves }), crowns);
   paintInstances(scene, new THREE.SphereGeometry(0.12, 6, 5), lambert(0xffb703), fruit);
   paintInstances(scene, new THREE.BoxGeometry(1.35, 0.8, 0.82), lambert(0xe6b15a), hay);
   paintInstances(scene, new THREE.CylinderGeometry(0.035, 0.05, 1.25, 5), lambert(0x3d8f32), stems);
@@ -755,11 +693,11 @@ export function createEffects(scene) {
 export function createWorld(canvas, track) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.setClearColor(0x8ecfff);
+  renderer.setClearColor(0xb7e3ff);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x8ecfff);
-  scene.fog = new THREE.Fog(0x8ecfff, 120, 280);
+  scene.background = new THREE.Color(0xb7e3ff);
+  scene.fog = new THREE.Fog(0xb7e3ff, 90, 250);
 
   const camera = new THREE.PerspectiveCamera(64, 1, 0.1, 420);
 
@@ -772,21 +710,16 @@ export function createWorld(canvas, track) {
   fill.position.set(-40, 24, -30);
   scene.add(fill);
 
-  const grass = new THREE.Mesh(new THREE.PlaneGeometry(460, 460), new THREE.MeshLambertMaterial({ map: grassTexture() }));
-  grass.rotation.x = -Math.PI / 2;
-  grass.receiveShadow = true;
-  scene.add(grass);
+  addMeadow(scene);
 
   scene.add(buildRoad(track));
-  scene.add(buildWall(track, 1));
-  scene.add(buildWall(track, -1));
-  addPosts(scene, track);
+  addFence(scene, track);
   addBleachers(scene, track);
   dressTrack(scene, track);
   const bulbs = addBanner(scene, track);
 
   const rand = rng(9);
-  const hillMat = lambert(0x58a844);
+  const hillMat = lambert(0x6fbf4e);
   for (let i = 0; i < 9; i += 1) {
     const a = (i / 9) * Math.PI * 2 + 0.2;
     const hill = new THREE.Mesh(new THREE.SphereGeometry(16 + rand() * 10, 10, 8), hillMat);
