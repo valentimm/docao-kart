@@ -55,6 +55,7 @@ const views = new Map();
 for (const racer of racers) {
   const view = createKartView(racer);
   world.scene.add(view.group);
+  world.scene.add(view.blob);
   views.set(racer, view);
 }
 
@@ -382,11 +383,9 @@ function layoutRacers(time = 0, dt = 0) {
     if (racer.boost > 0.65 && !view.boosting) view.hop = 1;
     view.boosting = racer.boost > 0;
     view.hop = Math.max(0, view.hop - dt * 1.5);
-    view.group.position.set(
-      racer.x,
-      Math.sin(view.hop * Math.PI) * 0.32 + bob,
-      racer.z,
-    );
+    const hop = Math.sin(view.hop * Math.PI) * 0.32 + bob;
+    view.group.position.set(racer.x, hop, racer.z);
+    view.blob.position.set(racer.x, 0.045, racer.z);
     view.group.rotation.y = racer.yaw;
     view.group.rotation.z = -racer.steer * 0.12 - racer.slide * 0.01;
     view.spin += racer.speed * dt * 0.85;

@@ -248,6 +248,19 @@ export function stepRacer(racer, input, dt, track, ctx) {
 
   if (racer.speed < 1.5 && Math.abs(racer.lateral) > track.halfWidth - 2.4) racer.stuckTime += dt;
   else racer.stuckTime = Math.max(0, racer.stuckTime - dt * 2);
+
+  if (racer.stuckTime > 0.55 && racer.speed < 3) {
+    const stuckAt = project(track, racer.x, racer.z);
+    const tx = stuckAt.nz;
+    const tz = -stuckAt.nx;
+    racer.yaw = Math.atan2(tx, tz);
+    racer.speed = 8;
+    racer.slide = 0;
+    const sign = Math.sign(stuckAt.lateral) || 1;
+    racer.x -= stuckAt.nx * sign * 0.45;
+    racer.z -= stuckAt.nz * sign * 0.45;
+    racer.stuckTime = 0;
+  }
 }
 
 function constrain(racer, track, dt, ctx) {
@@ -262,13 +275,19 @@ function constrain(racer, track, dt, ctx) {
 
   const fx = Math.sin(racer.yaw);
   const fz = Math.cos(racer.yaw);
+  const tx = proj.nz;
+  const tz = -proj.nx;
+  const along = fx * tx + fz * tz;
   const outward = (fx * proj.nx + fz * proj.nz) * sign;
-  if (outward > 0.22) {
-    racer.speed *= 1 - Math.min(0.42, outward * 0.48);
-    racer.slide *= 0.35;
-    racer.yaw -= sign * outward * 2.4 * dt;
-    if (racer.wallBump <= 0) ctx.onWall?.(racer);
-    racer.wallBump = 0.28;
+  if (outward > 0.12) {
+    const parallel = Math.atan2(tx * Math.sign(along || 1), tz * Math.sign(along || 1));
+    racer.yaw += clamp(wrapAngle(parallel - racer.yaw), -6 * dt, 6 * dt);
+    racer.slide *= 0.5;
+    if (racer.wallBump <= 0) {
+      racer.speed *= 1 - Math.min(0.34, outward * 0.4);
+      ctx.onWall?.(racer);
+      racer.wallBump = 0.32;
+    }
   }
 }
 

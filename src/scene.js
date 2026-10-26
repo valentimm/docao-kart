@@ -161,21 +161,34 @@ function buildWall(track, side) {
   return mesh;
 }
 
+const _dummy = new THREE.Object3D();
+
+function paintInstances(scene, geometry, material, items) {
+  if (!items.length) return;
+  const mesh = new THREE.InstancedMesh(geometry, material, items.length);
+  items.forEach((item, index) => {
+    _dummy.position.set(item.x, item.y, item.z);
+    _dummy.rotation.set(item.rx || 0, item.ry || 0, item.rz || 0);
+    _dummy.scale.set(item.sx || 1, item.sy || 1, item.sz || 1);
+    _dummy.updateMatrix();
+    mesh.setMatrixAt(index, _dummy.matrix);
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  scene.add(mesh);
+}
+
 function addPosts(scene, track) {
-  const geo = new THREE.BoxGeometry(0.28, 1.45, 0.28);
-  const mat = lambert(0x8a4b2a);
+  const posts = [];
   const pts = track.points;
   for (let i = 0; i < pts.length; i += 4) {
     const p = pts[i];
     if (p.s < 0.015 || p.s > 0.985) continue;
     for (const side of [1, -1]) {
-      const post = new THREE.Mesh(geo, mat);
       const lat = side * (track.halfWidth + 0.02);
-      post.position.set(p.x + p.nx * lat, 0.72, p.z + p.nz * lat);
-      post.castShadow = true;
-      scene.add(post);
+      posts.push({ x: p.x + p.nx * lat, y: 0.72, z: p.z + p.nz * lat });
     }
   }
+  paintInstances(scene, new THREE.BoxGeometry(0.28, 1.45, 0.28), lambert(0x8a4b2a), posts);
 }
 
 function labelTexture(text, fill) {
@@ -398,19 +411,17 @@ export function createKartView(def) {
     group.add(flag);
   }
 
-  group.traverse((child) => {
-    if (child.isMesh) {
-      child.castShadow = true;
-      child.receiveShadow = true;
-    }
-  });
-  plate.castShadow = false;
+  const blob = new THREE.Mesh(
+    new THREE.CircleGeometry(1.15, 18),
+    new THREE.MeshBasicMaterial({ color: 0x3d5a32, transparent: true, opacity: 0.28, depthWrite: false }),
+  );
+  blob.rotation.x = -Math.PI / 2;
+  blob.position.y = 0.045;
 
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({
       map: labelTexture(def.name, def.player ? '#fff6e4' : '#ffffff'),
       transparent: true,
-      depthTest: false,
     }),
   );
   sprite.scale.set(def.player ? 2.6 : 2.2, 0.65, 1);
@@ -419,7 +430,19 @@ export function createKartView(def) {
   group.add(sprite);
 
   group.scale.setScalar(1.12);
-  return { group, wheels, pig, pigBase: pig.position.y, flag, spin: 0, hop: 0, boosting: false, phase: Math.random() * 6, skidAcc: 0 };
+  return {
+    group,
+    blob,
+    wheels,
+    pig,
+    pigBase: pig.position.y,
+    flag,
+    spin: 0,
+    hop: 0,
+    boosting: false,
+    phase: Math.random() * 6,
+    skidAcc: 0,
+  };
 }
 
 function addBarn(scene, x, z) {
@@ -471,76 +494,6 @@ function addTent(scene, x, z, color, yaw) {
     if (child.isMesh) child.castShadow = true;
   });
   scene.add(group);
-}
-
-function addTree(scene, x, z, rand) {
-  const group = new THREE.Group();
-  group.position.set(x, 0, z);
-  const h = 1.5 + rand() * 1.3;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.28, h, 6), lambert(0x8a5430));
-  trunk.position.y = h / 2;
-  group.add(trunk);
-  const leaf = lambert(rand() > 0.5 ? 0x3f9d3c : 0x6bc24c);
-  const crown = new THREE.Mesh(new THREE.SphereGeometry(0.85 + rand() * 0.45, 8, 7), leaf);
-  crown.position.y = h + 0.25;
-  group.add(crown);
-  if (rand() > 0.45) {
-    const fruit = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 6, 6),
-      lambert(rand() > 0.5 ? 0xff8a3d : 0xffd23f),
-    );
-    fruit.position.set(0.35, h + 0.15, 0.35);
-    group.add(fruit);
-  }
-  group.traverse((child) => {
-    if (child.isMesh) child.castShadow = true;
-  });
-  scene.add(group);
-}
-
-function addFlower(scene, x, z, yaw) {
-  const group = new THREE.Group();
-  group.position.set(x, 0, z);
-  group.rotation.y = yaw;
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 1.25, 5), lambert(0x3d8f32));
-  stem.position.y = 0.62;
-  group.add(stem);
-  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.08, 8), lambert(0xffd23f));
-  head.position.y = 1.28;
-  group.add(head);
-  const center = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.1, 8), lambert(0x6b3a22));
-  center.position.y = 1.34;
-  group.add(center);
-  scene.add(group);
-}
-
-function addHay(scene, x, z, yaw) {
-  const bale = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.8, 0.82), lambert(0xe6b15a));
-  bale.position.set(x, 0.4, z);
-  bale.rotation.y = yaw;
-  bale.castShadow = true;
-  bale.receiveShadow = true;
-  scene.add(bale);
-}
-
-function addCorn(scene, track, ox, oz) {
-  const stalkGeo = new THREE.CylinderGeometry(0.045, 0.07, 1.45, 5);
-  const topGeo = new THREE.SphereGeometry(0.16, 6, 5);
-  const stalkMat = lambert(0xd7de55);
-  const topMat = lambert(0x7fbf45);
-  for (let i = -3; i <= 3; i += 1) {
-    for (let j = -2; j <= 2; j += 1) {
-      const x = ox + i * 0.75;
-      const z = oz + j * 0.75;
-      if (Math.abs(project(track, x, z).lateral) < track.halfWidth + 5) continue;
-      const stalk = new THREE.Mesh(stalkGeo, stalkMat);
-      stalk.position.set(x, 0.72, z);
-      scene.add(stalk);
-      const top = new THREE.Mesh(topGeo, topMat);
-      top.position.set(x, 1.5, z);
-      scene.add(top);
-    }
-  }
 }
 
 function addBanner(scene, track) {
@@ -646,6 +599,13 @@ function addClouds(scene) {
 function dressTrack(scene, track) {
   const rand = rng(42);
   const pts = track.points;
+  const trunks = [];
+  const crowns = [];
+  const fruit = [];
+  const hay = [];
+  const stems = [];
+  const petals = [];
+  const seeds = [];
   for (let i = 0; i < pts.length; i += 5) {
     const p = pts[i];
     if (p.s < 0.07 || p.s > 0.95) continue;
@@ -653,7 +613,12 @@ function dressTrack(scene, track) {
     const dist = track.halfWidth + 4.5 + rand() * 4;
     const x = p.x + p.nx * outside * dist;
     const z = p.z + p.nz * outside * dist;
-    if (Math.abs(project(track, x, z).lateral) > track.halfWidth + 3) addTree(scene, x, z, rand);
+    if (Math.abs(project(track, x, z).lateral) <= track.halfWidth + 3) continue;
+    const h = 1.5 + rand() * 1.3;
+    trunks.push({ x, y: h / 2, z, sy: h / 1.6 });
+    const crown = 0.85 + rand() * 0.45;
+    crowns.push({ x, y: h + 0.25, z, sx: crown, sy: crown, sz: crown });
+    if (rand() > 0.45) fruit.push({ x: x + 0.35, y: h + 0.15, z: z + 0.35 });
   }
   for (let i = 0; i < pts.length; i += 7) {
     const p = pts[i];
@@ -665,18 +630,42 @@ function dressTrack(scene, track) {
     const side = -track.inwardSign;
     const x = p.x + p.nx * side * (track.halfWidth + 2.3);
     const z = p.z + p.nz * side * (track.halfWidth + 2.3);
-    if (Math.abs(project(track, x, z).lateral) > track.halfWidth + 1.4) addHay(scene, x, z, p.yaw);
+    if (Math.abs(project(track, x, z).lateral) > track.halfWidth + 1.4) {
+      hay.push({ x, y: 0.4, z, ry: p.yaw });
+    }
   }
   for (let i = 0; i < pts.length; i += 8) {
     const p = pts[i];
     const x = p.x + p.nx * track.inwardSign * (track.halfWidth + 2.8);
     const z = p.z + p.nz * track.inwardSign * (track.halfWidth + 2.8);
-    const lat = Math.abs(project(track, x, z).lateral);
-    if (lat > track.halfWidth + 1.6) addFlower(scene, x, z, p.yaw);
+    if (Math.abs(project(track, x, z).lateral) <= track.halfWidth + 1.6) continue;
+    stems.push({ x, y: 0.62, z });
+    petals.push({ x, y: 1.28, z });
+    seeds.push({ x, y: 1.34, z });
   }
+  paintInstances(scene, new THREE.CylinderGeometry(0.16, 0.28, 1.6, 6), lambert(0x8a5430), trunks);
+  paintInstances(scene, new THREE.SphereGeometry(1, 7, 6), lambert(0x4ea83c), crowns);
+  paintInstances(scene, new THREE.SphereGeometry(0.12, 6, 5), lambert(0xffb703), fruit);
+  paintInstances(scene, new THREE.BoxGeometry(1.35, 0.8, 0.82), lambert(0xe6b15a), hay);
+  paintInstances(scene, new THREE.CylinderGeometry(0.035, 0.05, 1.25, 5), lambert(0x3d8f32), stems);
+  paintInstances(scene, new THREE.CylinderGeometry(0.26, 0.26, 0.08, 8), lambert(0xffd23f), petals);
+  paintInstances(scene, new THREE.CylinderGeometry(0.09, 0.09, 0.1, 8), lambert(0x6b3a22), seeds);
+
+  const stalks = [];
+  const tops = [];
+  for (let i = -3; i <= 3; i += 1) {
+    for (let j = -2; j <= 2; j += 1) {
+      const x = 8 + i * 0.75;
+      const z = -18 + j * 0.75;
+      if (Math.abs(project(track, x, z).lateral) < track.halfWidth + 5) continue;
+      stalks.push({ x, y: 0.72, z });
+      tops.push({ x, y: 1.5, z });
+    }
+  }
+  paintInstances(scene, new THREE.CylinderGeometry(0.045, 0.07, 1.45, 5), lambert(0xd7de55), stalks);
+  paintInstances(scene, new THREE.SphereGeometry(0.16, 5, 4), lambert(0x7fbf45), tops);
 
   addBarn(scene, 2, -12);
-  addCorn(scene, track, 8, -18);
   const tents = [
     [-10, -6, 0xff4f8b, 0.4],
     [14, 2, 0x2ec4b6, -0.6],
@@ -764,11 +753,9 @@ export function createEffects(scene) {
 }
 
 export function createWorld(canvas, track) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setClearColor(0x8ecfff);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x8ecfff);
@@ -778,21 +765,9 @@ export function createWorld(canvas, track) {
 
   const hemi = new THREE.HemisphereLight(0xfff4d8, 0x69b85a, 1.15);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff1cc, 1.45);
+  const sun = new THREE.DirectionalLight(0xfff1cc, 1.55);
   sun.position.set(48, 86, 24);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  const frustum = 115;
-  sun.shadow.camera.left = -frustum;
-  sun.shadow.camera.right = frustum;
-  sun.shadow.camera.top = frustum;
-  sun.shadow.camera.bottom = -frustum;
-  sun.shadow.camera.near = 10;
-  sun.shadow.camera.far = 240;
-  sun.shadow.bias = -0.00035;
-  sun.shadow.normalBias = 0.04;
   scene.add(sun);
-  scene.add(sun.target);
   const fill = new THREE.DirectionalLight(0xffc4de, 0.35);
   fill.position.set(-40, 24, -30);
   scene.add(fill);
