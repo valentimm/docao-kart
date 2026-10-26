@@ -1,5 +1,6 @@
 import { buildTrack, clearance, project } from '../src/track.js';
 import { ROSTER, TOTAL_LAPS } from '../src/roster.js';
+import { SKINS, assignSkins, getSkin } from '../src/skins.js';
 import {
   TUNING,
   spawnRacer,
@@ -377,6 +378,14 @@ for (const racer of field) {
 }
 check(pickups > 0, 'ninguém pegou caixa na corrida');
 check(uses > 0, 'nenhum bot usou item');
+
+check(SKINS.some((skin) => skin.id === 'classico' && skin.shirt.color === '#d8261c'), 'faltou o visual clássico');
+check(getSkin('não-existe').id === 'classico', 'skin desconhecida não voltou ao clássico');
+const distinct = assignSkins('classico');
+check(distinct.docao === 'classico', 'jogador não ficou no clássico');
+check(new Set(Object.values(distinct)).size === 4, 'pilotos repetiram o visual');
+const swapped = assignSkins('clube');
+check(swapped.docao === 'clube' && swapped.hortela !== 'clube', 'bot ficou com o visual do jogador');
 
 if (failures.length) {
   console.error(failures.map((item) => `- ${item}`).join('\n'));

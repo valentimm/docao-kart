@@ -1,6 +1,8 @@
 import './style.css';
 import { buildTrack } from './track.js';
 import { ROSTER, TOTAL_LAPS, FLAVOR } from './roster.js';
+import { SKINS, SKIN_STORAGE, assignSkins, getSkin } from './skins.js';
+import { createSkinStage } from './docao.js';
 import {
   spawnRacer,
   resetRacer,
@@ -65,6 +67,31 @@ for (const racer of racers) {
   world.scene.add(view.blob);
   views.set(racer, view);
 }
+const skinStage = createSkinStage(document.querySelector('#skin-stage'));
+let playerSkin = 'classico';
+
+function readSkin() {
+  try {
+    return localStorage.getItem(SKIN_STORAGE);
+  } catch {
+    return null;
+  }
+}
+
+function dressField(id) {
+  playerSkin = getSkin(id).id;
+  try {
+    localStorage.setItem(SKIN_STORAGE, playerSkin);
+  } catch {
+    /* ignore private mode */
+  }
+  const map = assignSkins(playerSkin);
+  for (const racer of racers) views.get(racer).setSkin(map[racer.id]);
+  skinStage.show(playerSkin);
+  document.querySelectorAll('#skins button').forEach((button) => {
+    button.setAttribute('aria-selected', button.dataset.skin === playerSkin ? 'true' : 'false');
+  });
+}
 
 const audio = createAudio();
 let soundOn = true;
@@ -107,6 +134,18 @@ window.visualViewport?.addEventListener('resize', () => world.resize());
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', (event) => keys.delete(event.code));
 window.addEventListener('blur', () => keys.clear());
+
+const skinList = document.querySelector('#skins');
+for (const skin of SKINS) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.skin = skin.id;
+  button.textContent = skin.name;
+  button.setAttribute('role', 'option');
+  button.addEventListener('click', () => dressField(skin.id));
+  skinList.append(button);
+}
+dressField(readSkin());
 
 document.querySelector('#play').addEventListener('click', () => beginRace());
 document.querySelector('#again').addEventListener('click', () => beginRace());
@@ -465,6 +504,7 @@ function frame(now) {
     if (player.boost <= 0) boostLatch = false;
   }
   world.renderer.render(world.scene, world.camera);
+  if (mode === 'menu') skinStage.render();
   requestAnimationFrame(frame);
 }
 

@@ -24,7 +24,7 @@ O preview sobe em [http://localhost:4173](http://localhost:4173).
 
 ## Como jogar
 
-No menu, **Jogar** começa a corrida de 3 voltas.
+No menu, escolha o visual do Docão e **Jogar** começa a corrida de 3 voltas. A escolha fica salva neste navegador. O focinho, as orelhas e os olhos não mudam: só a roupa. Os outros pilotos usam visuais diferentes.
 
 - **W** ou **↑** acelera
 - **S** ou **↓** freia e, segurando, dá ré

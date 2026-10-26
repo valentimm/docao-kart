@@ -11,7 +11,7 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #8ecfff;
+  background: #b7e3ff;
   touch-action: none;
 }
 
@@ -42,13 +42,58 @@ button, input { font-family: inherit; }
 #sound[aria-pressed="false"] { background: #ffe0ea; }
 
 .card {
-  width: min(440px, calc(100vw - 28px));
-  background: rgba(255, 246, 232, 0.94);
+  width: min(520px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+  background: rgba(255, 246, 232, 0.96);
   border: 4px solid #5c3317;
   border-radius: 28px;
   padding: 22px 22px 18px;
   box-shadow: 0 12px 0 rgba(92, 51, 23, 0.18);
   text-align: center;
+}
+
+.skin-label {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d4573c;
+}
+
+#skin-stage {
+  width: 100%;
+  height: 132px;
+  display: block;
+  border-radius: 18px;
+  border: 3px solid #5c3317;
+  background: #fff1d0;
+}
+
+#skins {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 6px;
+  margin: 8px 0 14px;
+}
+
+#skins button {
+  border: 3px solid #5c3317;
+  border-radius: 14px;
+  background: #fffaf2;
+  color: #5c3317;
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1.15;
+  min-height: 42px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+#skins button[aria-selected="true"] {
+  background: #ffd84a;
+  box-shadow: 0 3px 0 #5c3317;
 }
 
 #menu, #results, #pause {
@@ -82,7 +127,7 @@ h1 {
 }
 
 .tagline {
-  margin: 10px 0 16px;
+  margin: 6px 0 10px;
   font-size: 16px;
   font-weight: 700;
 }
@@ -112,9 +157,9 @@ h1 {
 .controls {
   list-style: none;
   padding: 0;
-  margin: 16px 0 8px;
+  margin: 10px 0 4px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
   text-align: left;
   font-weight: 700;
 }
