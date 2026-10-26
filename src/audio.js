@@ -84,6 +84,15 @@ export function createAudio() {
     boost() {
       tone(480, 0.14, 'square', 0.05, 840);
     },
+    pickup() {
+      tone(660, 0.08, 'square', 0.05, 990);
+    },
+    toss() {
+      tone(300, 0.09, 'square', 0.045, 150);
+    },
+    slip() {
+      tone(190, 0.16, 'sawtooth', 0.055, 55);
+    },
     fanfare() {
       [523, 659, 784, 1046].forEach((freq, i) => {
         window.setTimeout(() => tone(freq, 0.16, 'triangle', 0.07), i * 105);

@@ -442,6 +442,7 @@ export function createKartView(def) {
     boosting: false,
     phase: Math.random() * 6,
     skidAcc: 0,
+    sparkAcc: 0,
   };
 }
 

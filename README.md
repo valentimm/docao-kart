@@ -30,9 +30,16 @@ No menu, **Jogar** começa a corrida de 3 voltas.
 - **S** ou **↓** freia e, segurando, dá ré
 - **A D** ou **← →** viram
 - **Espaço** derrapa. Segure numa curva e solte para ganhar um impulso
+- **E** usa o item que você está carregando
 - **Esc** pausa
 
-O placar mostra a posição, a volta, o tempo e o minimapa. No celular a tela acompanha a janela, e botões de toque aparecem embaixo.
+Caixas girando na pista entregam um item. Cada piloto segura um por vez. No celular, o botão **Item** faz o mesmo que a tecla **E**.
+
+- **Pamonha** — arrancada curta
+- **Casca** — fica no chão, atrás de quem soltou. Quem passa por cima escorrega e perde velocidade
+- **Tomate** — sai para a frente e empurra o kart que acertar
+
+O placar mostra a posição, a volta, o tempo, o item na mão e o minimapa. No celular a tela acompanha a janela, e botões de toque aparecem embaixo.
 
 ## Publicar na Vercel
 
