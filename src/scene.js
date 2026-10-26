@@ -30,21 +30,23 @@ function roadTexture(track) {
   const visual = track.halfWidth + track.shoulder;
   const shoulderFrac = track.shoulder / (2 * visual);
   const tex = canvasTexture(128, 256, (g, w, h) => {
-    g.fillStyle = '#e7c48a';
+    const curb = Math.max(22, Math.round(h * shoulderFrac));
+    g.fillStyle = '#e2b56b';
     g.fillRect(0, 0, w, h);
-    g.fillStyle = '#d7a86a';
-    g.fillRect(0, h * 0.46, w, h * 0.08);
-    const band = Math.max(10, Math.round(h * shoulderFrac));
+    g.fillStyle = '#f3d7a0';
+    g.fillRect(0, curb + 18, w, h - (curb + 18) * 2);
+    g.fillStyle = '#c9954e';
+    g.fillRect(0, curb, w, 16);
+    g.fillRect(0, h - curb - 16, w, 16);
     for (let x = 0; x < w; x += 32) {
       g.fillStyle = (x / 32) % 2 === 0 ? '#ff4f8b' : '#ffe27a';
-      g.fillRect(x, 0, 32, band);
-      g.fillRect(x, h - band, 32, band);
+      g.fillRect(x, 0, 32, curb);
+      g.fillRect(x, h - curb, 32, curb);
     }
     g.fillStyle = '#fffaf2';
-    g.fillRect(0, band, w, 5);
-    g.fillRect(0, h - band - 5, w, 5);
-    g.fillStyle = '#fff6e4';
-    g.fillRect(8, h * 0.46, 52, h * 0.08);
+    g.fillRect(0, curb, w, 7);
+    g.fillRect(0, h - curb - 7, w, 7);
+    g.fillRect(8, h * 0.5 - 6, 72, 12);
   });
   tex.wrapS = THREE.RepeatWrapping;
   tex.anisotropy = 8;
@@ -52,20 +54,33 @@ function roadTexture(track) {
 }
 
 function grassTexture() {
-  const tex = canvasTexture(128, 128, (g) => {
-    g.fillStyle = '#7ed15c';
-    g.fillRect(0, 0, 128, 128);
-    g.fillStyle = '#69c24c';
-    for (let y = 0; y < 128; y += 16) g.fillRect(0, y, 128, 6);
-    g.fillStyle = '#9ae06e';
-    g.beginPath();
-    g.arc(36, 40, 18, 0, Math.PI * 2);
-    g.arc(92, 88, 22, 0, Math.PI * 2);
-    g.fill();
+  const tex = canvasTexture(256, 256, (g) => {
+    g.fillStyle = '#6cbf48';
+    g.fillRect(0, 0, 256, 256);
+    const blobs = [
+      [48, 70, 92, 'rgba(158, 224, 104, 0.85)'],
+      [180, 40, 74, 'rgba(92, 176, 58, 0.7)'],
+      [200, 190, 100, 'rgba(176, 230, 112, 0.75)'],
+      [70, 200, 80, 'rgba(74, 158, 48, 0.65)'],
+      [128, 128, 60, 'rgba(186, 236, 120, 0.45)'],
+    ];
+    for (const [x, y, radius, color] of blobs) {
+      for (const ox of [-256, 0, 256]) {
+        for (const oy of [-256, 0, 256]) {
+          const shade = g.createRadialGradient(x + ox, y + oy, radius * 0.1, x + ox, y + oy, radius);
+          shade.addColorStop(0, color);
+          shade.addColorStop(1, 'rgba(108, 191, 72, 0)');
+          g.fillStyle = shade;
+          g.beginPath();
+          g.arc(x + ox, y + oy, radius, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+    }
   });
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(14, 14);
+  tex.repeat.set(4, 4);
   return tex;
 }
 
@@ -123,58 +138,34 @@ function buildRoad(track) {
   return mesh;
 }
 
-function fenceTexture() {
-  const tex = canvasTexture(128, 64, (g, w, h) => {
-    g.fillStyle = '#d7a15c';
-    g.fillRect(0, 0, w, h);
-    for (let x = 0; x < w; x += 16) {
-      g.fillStyle = (x / 16) % 2 === 0 ? '#e2b56d' : '#c48445';
-      g.fillRect(x, 10, 15, h - 10);
-      g.fillStyle = '#8d552c';
-      g.fillRect(x + 14, 10, 2, h - 10);
-    }
-    g.fillStyle = '#ff4f8b';
-    g.fillRect(0, 0, w, 8);
-    g.fillStyle = '#ffe27a';
-    g.fillRect(0, 8, w, 4);
-  });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.anisotropy = 4;
-  return tex;
-}
-
-function buildWall(track, side) {
+function addRail(scene, track, side, y, height, thick, color) {
   const pts = track.points;
   const n = pts.length;
-  const lat = side * (track.halfWidth + 0.05);
+  const lat = side * (track.halfWidth + 0.02);
   const positions = [];
-  const uvs = [];
   const indices = [];
   for (let i = 0; i < n; i += 1) {
     const p = pts[i];
-    positions.push(p.x + p.nx * lat, 0, p.z + p.nz * lat, p.x + p.nx * lat, 1.05, p.z + p.nz * lat);
-    const u = p.dist / 1.15;
-    uvs.push(u, 0, u, 1);
+    const ox = p.x + p.nx * (lat + side * thick);
+    const oz = p.z + p.nz * (lat + side * thick);
+    const ix = p.x + p.nx * lat;
+    const iz = p.z + p.nz * lat;
+    positions.push(ox, y, oz, ox, y + height, oz, ix, y + height, iz, ix, y, iz);
   }
   for (let i = 0; i < n; i += 1) {
-    const a = i * 2;
-    const b = a + 1;
-    const c = ((i + 1) % n) * 2;
-    const d = c + 1;
-    indices.push(a, c, b, b, c, d);
+    const a = i * 4;
+    const b = ((i + 1) % n) * 4;
+    indices.push(a, b, a + 1, a + 1, b, b + 1);
+    indices.push(a + 1, b + 1, a + 2, a + 2, b + 1, b + 2);
+    indices.push(a + 3, a + 2, b + 3, b + 3, a + 2, b + 2);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshLambertMaterial({ map: fenceTexture(), side: THREE.DoubleSide }),
-  );
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }));
   mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
+  scene.add(mesh);
 }
 
 const _dummy = new THREE.Object3D();
@@ -193,18 +184,28 @@ function paintInstances(scene, geometry, material, items) {
   scene.add(mesh);
 }
 
-function addPosts(scene, track) {
+function addFence(scene, track) {
+  for (const side of [1, -1]) {
+    addRail(scene, track, side, 0, 0.28, 0.1, 0xc9844a);
+    addRail(scene, track, side, 0.52, 0.1, 0.08, 0xf3d7a4);
+    addRail(scene, track, side, 0.98, 0.12, 0.1, 0xff4f8b);
+  }
   const posts = [];
+  const caps = [];
   const pts = track.points;
-  for (let i = 0; i < pts.length; i += 4) {
+  for (let i = 0; i < pts.length; i += 3) {
     const p = pts[i];
     if (p.s < 0.015 || p.s > 0.985) continue;
     for (const side of [1, -1]) {
-      const lat = side * (track.halfWidth + 0.02);
-      posts.push({ x: p.x + p.nx * lat, y: 0.72, z: p.z + p.nz * lat });
+      const lat = side * (track.halfWidth + 0.06);
+      const x = p.x + p.nx * lat;
+      const z = p.z + p.nz * lat;
+      posts.push({ x, y: 0.78, z, ry: p.yaw });
+      caps.push({ x, y: 1.62, z, ry: p.yaw });
     }
   }
-  paintInstances(scene, new THREE.BoxGeometry(0.28, 1.45, 0.28), lambert(0x8a4b2a), posts);
+  paintInstances(scene, new THREE.BoxGeometry(0.34, 1.56, 0.2), lambert(0x6b3a22), posts);
+  paintInstances(scene, new THREE.BoxGeometry(0.46, 0.1, 0.3), lambert(0xfff6e4), caps);
 }
 
 function labelTexture(text, fill) {
@@ -720,9 +721,7 @@ export function createWorld(canvas, track) {
   scene.add(grass);
 
   scene.add(buildRoad(track));
-  scene.add(buildWall(track, 1));
-  scene.add(buildWall(track, -1));
-  addPosts(scene, track);
+  addFence(scene, track);
   addBleachers(scene, track);
   dressTrack(scene, track);
   const bulbs = addBanner(scene, track);
