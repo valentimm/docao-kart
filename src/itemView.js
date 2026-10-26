@@ -7,43 +7,183 @@ function canvasTexture(width, height, draw) {
   draw(canvas.getContext('2d'), width, height);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
   return tex;
 }
 
-function crateTexture() {
-  return canvasTexture(128, 128, (g) => {
-    g.fillStyle = '#e7a85a';
-    g.fillRect(0, 0, 128, 128);
-    g.fillStyle = '#d08a3c';
-    g.fillRect(0, 40, 128, 10);
-    g.fillRect(0, 78, 128, 10);
-    g.fillRect(40, 0, 10, 128);
-    g.fillRect(78, 0, 10, 128);
-    g.strokeStyle = '#8a4b2a';
-    g.lineWidth = 10;
-    g.strokeRect(5, 5, 118, 118);
-    g.fillStyle = '#ff4f8b';
-    g.fillRect(0, 0, 128, 12);
-    g.fillRect(0, 116, 128, 12);
+const TAU = Math.PI * 2;
+const CUP_H = 0.31;
+const CUP_SCALE = 1.26 / CUP_H;
+
+const grad = new THREE.DataTexture(new Uint8Array([80, 150, 215]), 3, 1, THREE.RedFormat);
+grad.minFilter = THREE.NearestFilter;
+grad.magFilter = THREE.NearestFilter;
+grad.needsUpdate = true;
+
+function toon(color, extra) {
+  return new THREE.MeshToonMaterial({ color, gradientMap: grad, ...(extra || {}) });
+}
+
+function toonWarm(color, k, extra) {
+  const mat = toon(color, extra);
+  mat.emissive = new THREE.Color(color).multiplyScalar(k);
+  return mat;
+}
+
+function outlineMaterial(thickness) {
+  const mat = new THREE.MeshBasicMaterial({ color: 0x2b1206, side: THREE.BackSide });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>\ntransformed += normalize(normal) * ${thickness.toFixed(4)};`,
+    );
+  };
+  mat.customProgramCacheKey = () => `cheers-cup-outline-${thickness}`;
+  return mat;
+}
+
+function addOutline(mesh, material) {
+  const shell = new THREE.Mesh(mesh.geometry, material);
+  shell.raycast = () => {};
+  mesh.add(shell);
+}
+
+// Marca C! desenhada à mão, igual ao Docão / Copo Bomba.
+function drawLogo(ctx, cx, cy, h, color) {
+  const arc = () => {
+    ctx.beginPath();
+    ctx.arc(cx - h * 0.2, cy, h * 0.33, Math.PI * 0.27, Math.PI * 1.73);
+  };
+  const bang = (grow) => {
+    const bx = cx + h * 0.36;
+    const w = h * 0.2 + grow;
+    ctx.beginPath();
+    ctx.moveTo(bx - w / 2 + h * 0.03, cy - h * 0.48 - grow / 2);
+    ctx.lineTo(bx + w / 2 + h * 0.03, cy - h * 0.48 - grow / 2);
+    ctx.lineTo(bx + w * 0.3, cy + h * 0.18 + grow / 2);
+    ctx.lineTo(bx - w * 0.3, cy + h * 0.18 + grow / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(bx, cy + h * 0.38, h * 0.11 + grow / 2, 0, TAU);
+    ctx.fill();
+  };
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = h * 0.26;
+  arc();
+  ctx.stroke();
+  bang(0);
+}
+
+function cupRadius(y) {
+  const t = y / CUP_H;
+  const ridge = (center) => 0.006 * Math.exp(-Math.pow((y - center) / 0.007, 2));
+  return 0.096 + 0.044 * t + ridge(0.085) + ridge(0.205) + (y > CUP_H - 0.012 ? 0.004 : 0);
+}
+
+function cheersCupTexture() {
+  const rainbow = ['#f28c28', '#f2c94c', '#6fbf3b', '#17b394', '#2b8fd8', '#7a3fb5'];
+  return canvasTexture(512, 256, (g, W, H) => {
+    const body = g.createLinearGradient(0, 0, W, 0);
+    body.addColorStop(0, '#e0232b');
+    body.addColorStop(0.5, '#e63946');
+    body.addColorStop(1, '#e0232b');
+    g.fillStyle = body;
+    g.fillRect(0, 0, W, H);
+
+    for (const y of [0.085, 0.205]) {
+      const py = (1 - y / CUP_H) * H;
+      g.fillStyle = 'rgba(0,0,0,.25)';
+      g.fillRect(0, py + 2, W, 3);
+      g.fillStyle = 'rgba(255,255,255,.35)';
+      g.fillRect(0, py - 3, W, 3);
+    }
+
+    const rim = 10;
+    const bandTop = rim;
+    const stripe = 12;
+    rainbow.forEach((color, index) => {
+      g.fillStyle = color;
+      g.fillRect(0, bandTop + index * stripe, W, stripe + 0.5);
+    });
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, W, rim);
+
+    const gloss = g.createLinearGradient(W * 0.14, 0, W * 0.3, 0);
+    gloss.addColorStop(0, 'rgba(255,255,255,0)');
+    gloss.addColorStop(0.5, 'rgba(255,255,255,0.4)');
+    gloss.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gloss;
+    g.fillRect(W * 0.14, bandTop + rainbow.length * stripe, W * 0.16, H);
+
+    const cy = (1 - 0.148 / CUP_H) * H;
+    g.save();
+    g.translate(W / 2, cy);
+    g.scale(0.82, 1);
+    g.translate(-W / 2, -cy);
+    drawLogo(g, W / 2, cy, 78, '#f5e6d0');
+    g.restore();
   });
 }
 
-function questionTexture() {
-  return canvasTexture(128, 128, (g) => {
-    g.clearRect(0, 0, 128, 128);
-    g.fillStyle = '#ff4f8b';
-    g.beginPath();
-    g.arc(64, 64, 56, 0, Math.PI * 2);
-    g.fill();
-    g.lineWidth = 8;
-    g.strokeStyle = '#5c3317';
-    g.stroke();
-    g.fillStyle = '#fffaf2';
-    g.font = '800 86px Inter, sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText('?', 64, 70);
-  });
+function lathePoints(steps, y0, y1, radiusAt) {
+  const pts = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const y = y0 + ((y1 - y0) * i) / steps;
+    pts.push(new THREE.Vector2(Math.max(0.001, radiusAt(y)), y));
+  }
+  return pts;
+}
+
+function makeCheersCup() {
+  const tex = cheersCupTexture();
+  const shell = outlineMaterial(0.0075);
+  const root = new THREE.Group();
+  root.name = 'cheers-cup';
+  const model = new THREE.Group();
+  model.position.y = -CUP_H / 2;
+  root.add(model);
+
+  const body = new THREE.Mesh(
+    new THREE.LatheGeometry(lathePoints(40, 0, CUP_H, cupRadius), 40, Math.PI, TAU),
+    toonWarm('#ffffff', 0.12, { map: tex, emissiveMap: tex }),
+  );
+  addOutline(body, shell);
+  model.add(body);
+
+  const inner = new THREE.Mesh(
+    new THREE.LatheGeometry(
+      lathePoints(20, 0.02, CUP_H, (y) => cupRadius(y) - 0.006),
+      40,
+    ),
+    toonWarm('#f7f4ee', 0.22, { side: THREE.BackSide }),
+  );
+  model.add(inner);
+
+  const floor = new THREE.Mesh(
+    new THREE.CircleGeometry(cupRadius(0.02) - 0.006, 32),
+    toonWarm('#f7f4ee', 0.22),
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = 0.021;
+  model.add(floor);
+
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(cupRadius(CUP_H), 0.008, 8, 40),
+    toonWarm('#ffffff', 0.45),
+  );
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = CUP_H;
+  model.add(rim);
+
+  const bottom = new THREE.Mesh(new THREE.CircleGeometry(0.096, 32), toon('#e0232b'));
+  bottom.rotation.x = Math.PI / 2;
+  model.add(bottom);
+
+  root.scale.setScalar(CUP_SCALE);
+  return root;
 }
 
 function makePamonha() {
@@ -80,25 +220,14 @@ function makeTomate() {
 }
 
 export function createItemView(scene, field, racers) {
-  const dummy = new THREE.Object3D();
-  const boxes = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1.2, 1.05, 1.2),
-    new THREE.MeshLambertMaterial({ map: crateTexture() }),
-    field.boxes.length,
-  );
-  boxes.frustumCulled = false;
-  scene.add(boxes);
-
-  const qMat = new THREE.SpriteMaterial({
-    map: questionTexture(),
-    transparent: true,
-    depthWrite: false,
-  });
-  const questions = field.boxes.map(() => {
-    const sprite = new THREE.Sprite(qMat);
-    sprite.scale.set(1.15, 1.15, 1);
-    scene.add(sprite);
-    return sprite;
+  const template = makeCheersCup();
+  const cups = field.boxes.map(() => {
+    const cup = template.clone();
+    cup.traverse((child) => {
+      child.frustumCulled = false;
+    });
+    scene.add(cup);
+    return cup;
   });
 
   const peels = field.peels.map(() => {
@@ -130,19 +259,11 @@ export function createItemView(scene, field, racers) {
       items.boxes.forEach((box, index) => {
         const bob = 0.78 + Math.sin(time * 3 + index) * 0.1;
         const shown = box.alive ? 0.55 + 0.45 * (box.pop > 0 ? 1 - box.pop / 0.26 : 1) : 0.001;
-        dummy.position.set(box.x, box.alive ? bob : -6, box.z);
-        dummy.rotation.set(0, time * 0.9 + index, 0);
-        dummy.scale.setScalar(shown);
-        dummy.updateMatrix();
-        boxes.setMatrixAt(index, dummy.matrix);
-        const mark = questions[index];
-        mark.visible = box.alive;
-        if (!box.alive) return;
-        mark.position.set(box.x, bob + 0.95, box.z);
-        const pulse = 1 + Math.sin(time * 5 + index) * 0.06;
-        mark.scale.set(1.2 * pulse, 1.2 * pulse, 1);
+        const cup = cups[index];
+        cup.position.set(box.x, box.alive ? bob : -6, box.z);
+        cup.rotation.set(0, time * 0.9 + index, 0);
+        cup.scale.setScalar(CUP_SCALE * shown);
       });
-      boxes.instanceMatrix.needsUpdate = true;
 
       items.peels.forEach((peel, index) => {
         const mesh = peels[index];
