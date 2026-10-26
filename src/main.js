@@ -737,8 +737,15 @@ function drawMinimap() {
   mapCtx.stroke();
   for (const box of items.boxes) {
     if (!box.alive) continue;
-    mapCtx.fillStyle = '#ff4f8b';
-    mapCtx.fillRect(map.X(box.x) - 2.5, map.Y(box.z) - 2.5, 5, 5);
+    const x = map.X(box.x);
+    const y = map.Y(box.z);
+    mapCtx.beginPath();
+    mapCtx.fillStyle = '#e0232b';
+    mapCtx.arc(x, y, 3.3, 0, Math.PI * 2);
+    mapCtx.fill();
+    mapCtx.lineWidth = 1;
+    mapCtx.strokeStyle = '#f5e6d0';
+    mapCtx.stroke();
   }
   for (const racer of racers) {
     mapCtx.beginPath();
