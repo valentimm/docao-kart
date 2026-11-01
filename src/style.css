@@ -96,6 +96,42 @@ button, input { font-family: inherit; }
   box-shadow: 0 3px 0 #5c3317;
 }
 
+#cars {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+
+#cars button {
+  border: 3px solid #5c3317;
+  border-radius: 14px;
+  background: #fffaf2;
+  color: #5c3317;
+  font-weight: 800;
+  font-size: 15px;
+  line-height: 1.2;
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+#cars button small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8a5a32;
+}
+
+#cars button[aria-selected="true"] {
+  background: #ffd84a;
+  box-shadow: 0 3px 0 #5c3317;
+}
+
+#cars button[aria-selected="true"] small {
+  color: #5c3317;
+}
+
 #menu, #results, #pause {
   position: fixed;
   inset: 0;
@@ -319,16 +355,39 @@ kbd {
 
 #wrong {
   position: fixed;
-  top: 18%;
+  top: 22%;
   left: 50%;
   transform: translateX(-50%);
   z-index: 4;
-  background: #ff4f8b;
-  color: white;
-  border: 3px solid #5c3317;
-  border-radius: 999px;
-  padding: 8px 16px;
+  width: min(440px, calc(100vw - 32px));
+  padding: 14px 18px 12px;
+  text-align: center;
+  pointer-events: none;
+  color: #fffaf2;
+  background: #e23b55;
+  border: 4px solid #5c3317;
+  border-radius: 22px;
+  box-shadow: 0 8px 0 #5c3317;
+  animation: wrong-pulse 0.7s ease-in-out infinite;
+}
+
+#wrong strong {
+  display: block;
+  font-size: clamp(26px, 5vw, 40px);
+  line-height: 1;
+  text-shadow: 0 3px 0 #5c3317;
+}
+
+#wrong span {
+  display: block;
+  margin-top: 6px;
+  font-size: clamp(14px, 2.4vw, 18px);
   font-weight: 800;
+}
+
+@keyframes wrong-pulse {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50% { transform: translateX(-50%) scale(1.04); }
 }
 
 #countdown {

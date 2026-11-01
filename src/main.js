@@ -2,8 +2,10 @@ import './style.css';
 import { buildTrack } from './track.js';
 import { ROSTER, TOTAL_LAPS, FLAVOR } from './roster.js';
 import { SKINS, SKIN_STORAGE, assignSkins, getSkin } from './skins.js';
+import { CARS, CAR_STORAGE, applyCar, getCar } from './cars.js';
 import { createSkinStage } from './docao.js';
 import {
+  TUNING,
   spawnRacer,
   resetRacer,
   aiInput,
@@ -145,7 +147,47 @@ for (const skin of SKINS) {
   button.addEventListener('click', () => dressField(skin.id));
   skinList.append(button);
 }
+
+const carList = document.querySelector('#cars');
+let playerCar = 'arranque';
+
+function readCar() {
+  try {
+    return localStorage.getItem(CAR_STORAGE);
+  } catch {
+    return null;
+  }
+}
+
+function chooseCar(id) {
+  const car = applyCar(player, id);
+  playerCar = car.id;
+  try {
+    localStorage.setItem(CAR_STORAGE, playerCar);
+  } catch {
+    /* ignore private mode */
+  }
+  views.get(player).setPaint(car.body, car.accent);
+  carList.querySelectorAll('button').forEach((button) => {
+    button.setAttribute('aria-selected', button.dataset.car === playerCar ? 'true' : 'false');
+  });
+}
+
+for (const car of CARS) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.car = car.id;
+  button.setAttribute('role', 'option');
+  const name = document.createElement('strong');
+  name.textContent = car.name;
+  const line = document.createElement('small');
+  line.textContent = car.line;
+  button.append(name, line);
+  button.addEventListener('click', () => chooseCar(car.id));
+  carList.append(button);
+}
 dressField(readSkin());
+chooseCar(getCar(readCar()).id);
 
 document.querySelector('#play').addEventListener('click', () => beginRace());
 document.querySelector('#again').addEventListener('click', () => beginRace());
@@ -326,8 +368,8 @@ function readInput() {
   const throttle = keys.has('KeyW') || keys.has('ArrowUp') || touch.gas ? 1 : 0;
   const brake = keys.has('KeyS') || keys.has('ArrowDown') || touch.brake ? 1 : 0;
   const steer =
-    (keys.has('KeyD') || keys.has('ArrowRight') || touch.right ? 1 : 0) -
-    (keys.has('KeyA') || keys.has('ArrowLeft') || touch.left ? 1 : 0);
+    (keys.has('KeyA') || keys.has('ArrowLeft') || touch.left ? 1 : 0) -
+    (keys.has('KeyD') || keys.has('ArrowRight') || touch.right ? 1 : 0);
   return {
     throttle,
     brake,
@@ -515,7 +557,11 @@ function layoutRacers(time = 0, dt = 0) {
     if (racer.boost > 0.65 && !view.boosting) view.hop = 1;
     view.boosting = racer.boost > 0;
     view.hop = Math.max(0, view.hop - dt * 1.5);
-    const hop = Math.sin(view.hop * Math.PI) * 0.32 + bob;
+    let hop = Math.sin(view.hop * Math.PI) * 0.32 + bob;
+    if (racer.driftHop > 0) {
+      const t = 1 - racer.driftHop / TUNING.driftHop;
+      hop += Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * 0.2;
+    }
     view.group.position.set(racer.x, hop, racer.z);
     view.blob.position.set(racer.x, 0.045, racer.z);
     view.group.rotation.y = racer.yaw;
@@ -530,7 +576,7 @@ function layoutRacers(time = 0, dt = 0) {
     view.pig.position.y = view.pigBase + Math.sin(time * 8 + view.phase) * (0.012 + Math.min(0.04, Math.abs(racer.speed) * 0.0012));
     if (view.flag) view.flag.rotation.y = Math.sin(time * 7) * 0.35;
 
-    if (racer.drifting && racer.speed > 8) {
+    if (racer.drifting && racer.speed > 5.5) {
       view.skidAcc += Math.abs(racer.speed) * dt;
       if (view.skidAcc > 0.7) {
         view.skidAcc = 0;
@@ -622,7 +668,7 @@ function updateCamera(dt, time) {
       camPos.x += Math.sin(time * 42) * mag;
       camPos.y += Math.cos(time * 36) * mag * 0.4;
     }
-    const targetFov = 63 + Math.min(9, Math.abs(player.speed) * 0.22) + (player.boost > 0 ? 4.5 : 0);
+    const targetFov = 62 + Math.min(7, Math.abs(player.speed) * 0.28) + (player.boost > 0 ? 3.5 : 0);
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
     camera.updateProjectionMatrix();
   }
@@ -639,9 +685,9 @@ function updateHud() {
   lapEl.textContent = `Volta ${Math.min(player.lap, TOTAL_LAPS)}/${TOTAL_LAPS}`;
   timerEl.textContent = formatTime(mode === 'countdown' ? 0 : raceTime);
   bestEl.textContent = player.bestLap == null ? 'melhor —' : `melhor ${formatTime(player.bestLap)}`;
-  const kmh = Math.round(Math.abs(player.speed) * 6.5);
+  const kmh = Math.round(Math.abs(player.speed) * 8);
   speedEl.textContent = `${kmh} km/h`;
-  wrong.hidden = !(mode === 'race' && player.reverseTime > 0.4);
+  wrong.hidden = !(mode === 'race' && player.reverseTime > 0.28);
 
   const key = order.map((racer) => racer.id).join('-');
   if (key !== orderKey) {
@@ -680,9 +726,9 @@ function updateHud() {
   const showDrift = mode === 'race' && (player.drifting || player.driftTime > 0);
   driftBar.hidden = !showDrift;
   if (showDrift) {
-    const amount = Math.min(1, player.driftTime / 0.9);
+    const amount = Math.min(1, player.driftTime / TUNING.driftMin);
     driftFill.style.width = `${amount * 100}%`;
-    driftFill.classList.toggle('ready', player.driftTime >= 0.45);
+    driftFill.classList.toggle('ready', player.driftTime >= TUNING.driftMin);
   }
 }
 

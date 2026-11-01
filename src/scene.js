@@ -365,6 +365,11 @@ export function createKartView(def, skinId = 'classico') {
     setSkin(id) {
       mountPig(id);
     },
+    setPaint(body, accent) {
+      bodyMat.color.set(body);
+      accentMat.color.set(accent);
+      if (flag) flag.material.color.set(accent);
+    },
     flag,
     spin: 0,
     hop: 0,

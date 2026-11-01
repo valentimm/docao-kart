@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ITEM_RULES } from './items.js';
 
 function canvasTexture(width, height, draw) {
   const canvas = document.createElement('canvas');
@@ -258,11 +259,23 @@ export function createItemView(scene, field, racers) {
     update(items, fieldRacers, time) {
       items.boxes.forEach((box, index) => {
         const bob = 0.78 + Math.sin(time * 3 + index) * 0.1;
-        const shown = box.alive ? 0.55 + 0.45 * (box.pop > 0 ? 1 - box.pop / 0.26 : 1) : 0.001;
         const cup = cups[index];
-        cup.position.set(box.x, box.alive ? bob : -6, box.z);
-        cup.rotation.set(0, time * 0.9 + index, 0);
-        cup.scale.setScalar(CUP_SCALE * shown);
+        let presence = 0;
+        let lift = 0;
+        if (box.alive) {
+          presence = box.pop > 0 ? 1 - box.pop / ITEM_RULES.show : 1;
+        } else {
+          const elapsed = ITEM_RULES.respawn - box.cooldown;
+          if (elapsed >= 0 && elapsed < ITEM_RULES.hide) {
+            presence = 1 - elapsed / ITEM_RULES.hide;
+            lift = elapsed / ITEM_RULES.hide;
+          }
+        }
+        const ease = presence * presence * (3 - 2 * presence);
+        cup.visible = ease > 0.03;
+        cup.position.set(box.x, bob + lift * 1.05, box.z);
+        cup.rotation.set(lift * 0.5, time * (0.9 + lift * 7) + index, 0);
+        cup.scale.setScalar(CUP_SCALE * Math.max(ease, 0.001));
       });
 
       items.peels.forEach((peel, index) => {

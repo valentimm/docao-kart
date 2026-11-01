@@ -17,6 +17,8 @@
         <p class="eyebrow">Feira da fazenda</p>
         <h1>Docão Kart</h1>
         <p class="tagline">Três voltas, quatro pilotos e um porquinho com pressa.</p>
+        <p class="skin-label" id="car-label">Carro</p>
+        <div id="cars" role="listbox" aria-labelledby="car-label"></div>
         <p class="skin-label" id="skin-label">Visual do Docão</p>
         <canvas id="skin-stage" width="320" height="168" aria-labelledby="skin-label"></canvas>
         <div id="skins" role="listbox" aria-labelledby="skin-label"></div>
@@ -51,7 +53,10 @@
     </div>
 
     <canvas id="minimap" width="190" height="190" hidden></canvas>
-    <div id="wrong" hidden>Sentido errado</div>
+    <div id="wrong" hidden role="status">
+      <strong>Sentido contrário</strong>
+      <span>Você está indo no sentido inverso da pista</span>
+    </div>
     <div id="callout" aria-live="polite"></div>
     <div id="countdown" hidden>3</div>
 

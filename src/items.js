@@ -15,7 +15,9 @@ const ROLL_GAPS = [0.05, 0.05, 0.055, 0.06, 0.07, 0.08, 0.1, 0.12, 0.16, 0.22, 0
 export const ITEM_ORDER = ['pamonha', 'casca', 'tomate'];
 
 export const ITEM_RULES = {
-  respawn: 4.5,
+  respawn: 3,
+  hide: 0.42,
+  show: 0.5,
   pickupRadius: 2.05,
   peelLife: 11,
   peelRadius: 1.55,
@@ -27,14 +29,9 @@ export const ITEM_RULES = {
   roulette: ROLL_GAPS.reduce((sum, gap) => sum + gap, 0),
 };
 
-const SPOTS = [
-  { s: 0.12, lateral: 0 },
-  { s: 0.26, lateral: 1.5 },
-  { s: 0.4, lateral: -1.2 },
-  { s: 0.54, lateral: 0.4 },
-  { s: 0.68, lateral: -1.6 },
-  { s: 0.82, lateral: 1.1 },
-];
+const SECTIONS = 12;
+const CUPS_PER_LINE = 5;
+const LINE_MARGIN = 1.85;
 
 function wrapAngle(d) {
   while (d > Math.PI) d -= Math.PI * 2;
@@ -133,20 +130,37 @@ function rivalBehind(racer, racers, reach) {
   return false;
 }
 
+function hideLine(field, line) {
+  for (const box of field.boxes) {
+    if (box.line !== line || !box.alive) continue;
+    box.alive = false;
+    box.cooldown = ITEM_RULES.respawn;
+    box.pop = 0;
+  }
+}
+
 export function createItemField(track) {
-  const boxes = SPOTS.map((spot) => {
-    const pose = poseAt(track, spot.s, spot.lateral);
-    return {
-      s: spot.s,
-      lateral: spot.lateral,
-      x: pose.x,
-      z: pose.z,
-      yaw: pose.yaw,
-      alive: true,
-      cooldown: 0,
-      pop: 0,
-    };
-  });
+  const span = track.halfWidth - LINE_MARGIN;
+  const boxes = [];
+  for (let section = 1; section < SECTIONS; section += 2) {
+    const s = (section + 0.35) / SECTIONS;
+    if (s <= 0.1 || s >= 0.88) continue;
+    for (let cup = 0; cup < CUPS_PER_LINE; cup += 1) {
+      const lateral = -span + (span * 2 * cup) / (CUPS_PER_LINE - 1);
+      const pose = poseAt(track, s, lateral);
+      boxes.push({
+        s,
+        lateral,
+        line: section,
+        x: pose.x,
+        z: pose.z,
+        yaw: pose.yaw,
+        alive: true,
+        cooldown: 0,
+        pop: 0,
+      });
+    }
+  }
   const peels = Array.from({ length: 6 }, () => ({
     active: false,
     x: 0,
@@ -318,7 +332,7 @@ export function stepItems(field, racers, dt, track, opts = {}) {
     if (box.cooldown > 0) continue;
     box.alive = true;
     box.cooldown = 0;
-    box.pop = 0.26;
+    box.pop = ITEM_RULES.show;
   }
 
   for (const box of field.boxes) {
@@ -328,9 +342,7 @@ export function stepItems(field, racers, dt, track, opts = {}) {
       const dist = Math.hypot(racer.x - box.x, racer.z - box.z);
       if (dist > ITEM_RULES.pickupRadius) continue;
       startRoll(racer, rollItem(rng));
-      box.alive = false;
-      box.cooldown = ITEM_RULES.respawn;
-      box.pop = 0;
+      hideLine(field, box.line);
       opts.onPickup?.(racer, racer.award);
       break;
     }

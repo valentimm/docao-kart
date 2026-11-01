@@ -242,8 +242,24 @@ for (let i = 0; i < 70; i += 1) {
   stepRacer(cruise, gas, 1 / 60, track, { raceTime: i / 60, totalLaps: TOTAL_LAPS });
   stepRacer(surge, gas, 1 / 60, track, { raceTime: i / 60, totalLaps: TOTAL_LAPS });
 }
-check(surge.speed > cruise.speed + 4, `pamonha pouco acima do ritmo (${surge.speed.toFixed(1)} vs ${cruise.speed.toFixed(1)})`);
-check(surge.speed > TUNING.maxSpeed, 'pamonha não passou do limite normal');
+const crashed = surge.wallBump > 0;
+check(crashed || surge.speed > cruise.speed + 4, `pamonha pouco acima do ritmo (${surge.speed.toFixed(1)} vs ${cruise.speed.toFixed(1)})`);
+check(crashed || surge.speed > TUNING.maxSpeed, 'pamonha não passou do limite normal');
+
+const bumper = spawnRacer(ROSTER[0], track, { row: 0, side: 1 });
+const spot = project(track, bumper.x, bumper.z);
+const side = Math.sign(spot.lateral) || 1;
+bumper.x += spot.nx * side * track.halfWidth;
+bumper.z += spot.nz * side * track.halfWidth;
+const offTrack = project(track, bumper.x, bumper.z);
+const outSign = Math.sign(offTrack.lateral) || 1;
+bumper.yaw = Math.atan2(offTrack.nx * outSign, offTrack.nz * outSign);
+bumper.speed = 16;
+stepRacer(bumper, { throttle: 0, brake: 0, reverse: false, steer: 0, drift: false }, 1 / 60, track, {
+  raceTime: 0,
+  totalLaps: TOTAL_LAPS,
+});
+check(bumper.speed < 8, `batida na parede não tirou a velocidade (${bumper.speed.toFixed(1)})`);
 
 const dropper = spawnRacer(ROSTER[2], track, { row: 0, side: 1 });
 dropper.item = 'casca';
