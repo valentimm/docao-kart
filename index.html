@@ -16,22 +16,33 @@
       <div class="card">
         <p class="eyebrow">Feira da fazenda</p>
         <h1>Docão Kart</h1>
-        <p class="tagline">Três voltas, quatro pilotos e um porquinho com pressa.</p>
+        <p class="tagline">Três voltas. Escolha a pista, o grid e, se quiser, uma sala.</p>
+        <p class="skin-label" id="track-label">Pista</p>
+        <div id="tracks" role="listbox" aria-labelledby="track-label"></div>
+        <p class="skin-label" id="grid-label">Pilotos</p>
+        <div class="grid-size">
+          <button id="grid-dec" type="button" aria-label="Menos pilotos">−</button>
+          <strong id="grid-value">4</strong>
+          <button id="grid-inc" type="button" aria-label="Mais pilotos">+</button>
+        </div>
+        <label class="name-field">Seu nome <input id="racer-name" maxlength="16" autocomplete="off" value="Docão" /></label>
         <p class="skin-label" id="car-label">Carro</p>
         <div id="cars" role="listbox" aria-labelledby="car-label"></div>
         <p class="skin-label" id="skin-label">Visual do Docão</p>
         <canvas id="skin-stage" width="320" height="168" aria-labelledby="skin-label"></canvas>
         <div id="skins" role="listbox" aria-labelledby="skin-label"></div>
         <button id="play" class="play" type="button">Jogar</button>
+        <button id="host-room" class="ghost room-btn" type="button">Criar sala online</button>
         <ul class="controls">
           <li><kbd>W</kbd><kbd>↑</kbd> acelerar</li>
           <li><kbd>S</kbd><kbd>↓</kbd> frear e ré</li>
           <li><kbd>A</kbd><kbd>D</kbd><kbd>←</kbd><kbd>→</kbd> virar</li>
           <li><kbd>Espaço</kbd> derrapar — solte para o impulso</li>
+          <li><kbd>Shift</kbd> derrapada suave — a barra enche mais devagar</li>
           <li><kbd>E</kbd> usar o item do copo</li>
           <li><kbd>Esc</kbd> pausar</li>
         </ul>
-        <p class="hint">No celular, a pista acompanha a tela e os botões aparecem embaixo.</p>
+        <p class="hint">No celular, a pista acompanha a tela e os botões aparecem embaixo. Cada pista tem a própria música.</p>
       </div>
     </section>
 
@@ -59,6 +70,35 @@
     </div>
     <div id="callout" aria-live="polite"></div>
     <div id="countdown" hidden>3</div>
+
+    <section id="lobby" hidden>
+      <div class="card">
+        <p class="eyebrow">Sala online</p>
+        <h2 id="room-code">----</h2>
+        <p id="room-status" class="tagline">Conectando…</p>
+        <p class="link-row">
+          <button id="room-copy" class="ghost" type="button">Copiar link</button>
+        </p>
+        <label class="name-field">Seu nome <input id="room-name" maxlength="16" autocomplete="off" value="Docão" /></label>
+        <div id="room-setup">
+          <p class="skin-label">Pista</p>
+          <div id="room-tracks" role="listbox"></div>
+          <p class="skin-label">Pilotos na corrida</p>
+          <div class="grid-size">
+            <button id="room-grid-dec" type="button" aria-label="Menos pilotos">−</button>
+            <strong id="room-grid-value">4</strong>
+            <button id="room-grid-inc" type="button" aria-label="Mais pilotos">+</button>
+          </div>
+        </div>
+        <p class="skin-label">Carro</p>
+        <div id="room-cars"></div>
+        <ol id="room-players"></ol>
+        <div class="actions">
+          <button id="room-start" class="play" type="button">Começar</button>
+          <button id="room-leave" class="ghost" type="button">Sair</button>
+        </div>
+      </div>
+    </section>
 
     <section id="results" hidden>
       <div class="card">
@@ -92,6 +132,7 @@
         <button id="use-item" type="button" data-press="item" aria-label="Usar item">Item</button>
         <div class="row">
           <button type="button" data-hold="drift" aria-label="Derrapar">Derrapa</button>
+          <button type="button" data-hold="glide" aria-label="Derrapada suave">Suave</button>
           <button type="button" data-hold="brake" aria-label="Frear">Freio</button>
           <button type="button" class="gas" data-hold="gas" aria-label="Acelerar">Acelera</button>
         </div>

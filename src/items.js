@@ -130,16 +130,13 @@ function rivalBehind(racer, racers, reach) {
   return false;
 }
 
-function hideLine(field, line) {
-  for (const box of field.boxes) {
-    if (box.line !== line || !box.alive) continue;
-    box.alive = false;
-    box.cooldown = ITEM_RULES.respawn;
-    box.pop = 0;
-  }
+function hideBox(box) {
+  box.alive = false;
+  box.cooldown = ITEM_RULES.respawn;
+  box.pop = 0;
 }
 
-export function createItemField(track) {
+export function createItemField(track, count = 4) {
   const span = track.halfWidth - LINE_MARGIN;
   const boxes = [];
   for (let section = 1; section < SECTIONS; section += 2) {
@@ -161,7 +158,8 @@ export function createItemField(track) {
       });
     }
   }
-  const peels = Array.from({ length: 6 }, () => ({
+  const seats = Math.max(4, count);
+  const peels = Array.from({ length: Math.max(6, seats) }, () => ({
     active: false,
     x: 0,
     z: 0,
@@ -170,7 +168,7 @@ export function createItemField(track) {
     arm: 0,
     owner: null,
   }));
-  const shots = Array.from({ length: 4 }, () => ({
+  const shots = Array.from({ length: Math.max(4, Math.ceil(seats * 0.75)) }, () => ({
     active: false,
     x: 0,
     z: 0,
@@ -308,6 +306,8 @@ export function stepItems(field, racers, dt, track, opts = {}) {
 
   for (const racer of racers) {
     if (racer.finished || racer.ghost) continue;
+    const queuedUse = !!racer.netUse;
+    if (racer.human && !racer.player) racer.netUse = false;
     if (racer.rolling) {
       const phase = advanceRoll(racer, dt);
       if (phase === 'spin') opts.onSpin?.(racer, racer.item);
@@ -316,7 +316,10 @@ export function stepItems(field, racers, dt, track, opts = {}) {
     }
     if (!racer.item) continue;
     racer.itemTime += dt;
-    const wants = racer.player ? !!opts.playerUse : botWantsUse(racer, racers, track, time);
+    let wants = false;
+    if (racer.player) wants = !!opts.playerUse;
+    else if (racer.human) wants = queuedUse;
+    else wants = botWantsUse(racer, racers, track, time);
     if (!wants) continue;
     const used = useHeldItem(racer, field);
     if (used) opts.onUse?.(racer, used);
@@ -342,7 +345,7 @@ export function stepItems(field, racers, dt, track, opts = {}) {
       const dist = Math.hypot(racer.x - box.x, racer.z - box.z);
       if (dist > ITEM_RULES.pickupRadius) continue;
       startRoll(racer, rollItem(rng));
-      hideLine(field, box.line);
+      hideBox(box);
       opts.onPickup?.(racer, racer.award);
       break;
     }

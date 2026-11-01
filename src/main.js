@@ -1,12 +1,13 @@
 import './style.css';
-import { buildTrack } from './track.js';
-import { ROSTER, TOTAL_LAPS, FLAVOR } from './roster.js';
+import { buildTrack, getTrack, TRACKS } from './track.js';
+import { TOTAL_LAPS, FLAVOR } from './roster.js';
 import { SKINS, SKIN_STORAGE, assignSkins, getSkin } from './skins.js';
 import { CARS, CAR_STORAGE, applyCar, getCar } from './cars.js';
+import { GRID_MIN, GRID_MAX, clampGrid, cleanName, localSeats, roomSeats, spawnField } from './field.js';
+import { createOnline, makeCode, normalizeCode, lerpAngle } from './online.js';
 import { createSkinStage } from './docao.js';
 import {
   TUNING,
-  spawnRacer,
   resetRacer,
   aiInput,
   stepRacer,
@@ -18,9 +19,11 @@ import { createWorld, createKartView, setLights } from './scene.js';
 import { createAudio } from './audio.js';
 import { ITEMS, createItemField, resetItems, stepItems } from './items.js';
 import { createItemView } from './itemView.js';
+import { createCapybaras, stepCapybaras, hitCapybaras } from './capybaras.js';
+import { createCapybaraView } from './capybaraView.js';
 
 const STEP = 1 / 60;
-const EMPTY = { throttle: 0, brake: 0, reverse: false, steer: 0, drift: false };
+const EMPTY = { throttle: 0, brake: 0, reverse: false, steer: 0, drift: false, glide: false };
 
 const canvas = document.querySelector('#view');
 const hud = document.querySelector('#hud');
@@ -48,29 +51,59 @@ const soundBtn = document.querySelector('#sound');
 
 const mapCtx = minimap.getContext('2d');
 const keys = new Set();
-const touch = { gas: false, brake: false, left: false, right: false, drift: false };
+const touch = { gas: false, brake: false, left: false, right: false, drift: false, glide: false };
 
-const track = buildTrack();
-const racers = [
-  spawnRacer(ROSTER[1], track, { row: 0, side: -1 }),
-  spawnRacer(ROSTER[0], track, { row: 0, side: 1 }),
-  spawnRacer(ROSTER[2], track, { row: 1, side: -1 }),
-  spawnRacer(ROSTER[3], track, { row: 1, side: 1 }),
-];
-const player = racers.find((racer) => racer.player);
+const TRACK_KEY = 'docao-kart-track';
+const GRID_KEY = 'docao-kart-grid';
+const NAME_KEY = 'docao-kart-name';
 
-const world = createWorld(canvas, track);
-const items = createItemField(track);
-const itemView = createItemView(world.scene, items, racers);
-const views = new Map();
-for (const racer of racers) {
-  const view = createKartView(racer);
-  world.scene.add(view.group);
-  world.scene.add(view.blob);
-  views.set(racer, view);
+const trackList = document.querySelector('#tracks');
+const lobbyEl = document.querySelector('#lobby');
+const roomCodeEl = document.querySelector('#room-code');
+const roomStatus = document.querySelector('#room-status');
+const roomPlayers = document.querySelector('#room-players');
+const roomName = document.querySelector('#room-name');
+const nameInput = document.querySelector('#racer-name');
+const gridValue = document.querySelector('#grid-value');
+const roomGridValue = document.querySelector('#room-grid-value');
+const againBtn = document.querySelector('#again');
+
+function readStored(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
-const skinStage = createSkinStage(document.querySelector('#skin-stage'));
+
+let trackId = getTrack(readStored(TRACK_KEY)).id;
+let gridCount = clampGrid(readStored(GRID_KEY) || GRID_MIN);
+let racerName = cleanName(readStored(NAME_KEY) || 'Docão');
+let track = buildTrack(trackId);
+let racers = [];
+let player = null;
+let items = null;
+let itemView = null;
+let herd = [];
+let capybaraView = null;
+const views = new Map();
+const world = createWorld(canvas, track);
+let map = mapSpace();
 let playerSkin = 'classico';
+let playerCar = 'arranque';
+let lobbyPlayers = [];
+let roomTries = 0;
+let wantHost = false;
+let closingMenu = false;
+let painting = false;
+let guestFinished = false;
+let roomOverAt = 0;
+let inputSend = 0;
+let stateSend = 0;
+const samples = [];
+nameInput.value = racerName;
+roomName.value = racerName;
+const skinStage = createSkinStage(document.querySelector('#skin-stage'));
 
 function readSkin() {
   try {
@@ -87,8 +120,16 @@ function dressField(id) {
   } catch {
     /* ignore private mode */
   }
-  const map = assignSkins(playerSkin);
-  for (const racer of racers) views.get(racer).setSkin(map[racer.id]);
+  const mapSkins = assignSkins(playerSkin);
+  racers.forEach((racer, index) => {
+    const skin = racer.local
+      ? playerSkin
+      : racer.human
+        ? racer.skin || playerSkin
+        : mapSkins[racer.id] || SKINS[index % SKINS.length].id;
+    if (racer.local) racer.skin = playerSkin;
+    views.get(racer).setSkin(skin);
+  });
   skinStage.show(playerSkin);
   document.querySelectorAll('#skins button').forEach((button) => {
     button.setAttribute('aria-selected', button.dataset.skin === playerSkin ? 'true' : 'false');
@@ -124,8 +165,6 @@ let useEdge = false;
 let heldLabel = 'sem item';
 const clock = { raceTime: 0, totalLaps: TOTAL_LAPS };
 
-const map = mapSpace();
-
 document.body.dataset.mode = 'menu';
 syncSoundButton();
 layoutRacers();
@@ -133,6 +172,9 @@ world.resize();
 
 window.addEventListener('resize', () => world.resize());
 window.visualViewport?.addEventListener('resize', () => world.resize());
+window.addEventListener('pointerdown', () => {
+  if (soundOn) audio.resume();
+});
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', (event) => keys.delete(event.code));
 window.addEventListener('blur', () => keys.clear());
@@ -149,7 +191,6 @@ for (const skin of SKINS) {
 }
 
 const carList = document.querySelector('#cars');
-let playerCar = 'arranque';
 
 function readCar() {
   try {
@@ -160,17 +201,44 @@ function readCar() {
 }
 
 function chooseCar(id) {
-  const car = applyCar(player, id);
-  playerCar = car.id;
+  playerCar = getCar(id).id;
   try {
     localStorage.setItem(CAR_STORAGE, playerCar);
   } catch {
     /* ignore private mode */
   }
-  views.get(player).setPaint(car.body, car.accent);
-  carList.querySelectorAll('button').forEach((button) => {
+  if (player) {
+    const car = applyCar(player, playerCar);
+    views.get(player)?.setPaint(car.body, car.accent);
+  }
+  for (const button of document.querySelectorAll('#cars button, #room-cars button')) {
     button.setAttribute('aria-selected', button.dataset.car === playerCar ? 'true' : 'false');
-  });
+  }
+  if (mode === 'lobby' && !painting) sendProfile();
+}
+
+function fillChoices(list, kind) {
+  list.replaceChildren();
+  const source = kind === 'track' ? TRACKS : CARS;
+  for (const item of source) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset[kind] = item.id;
+    button.setAttribute('role', 'option');
+    const name = document.createElement('strong');
+    name.textContent = item.name;
+    button.append(name);
+    if (item.line) {
+      const line = document.createElement('small');
+      line.textContent = item.line;
+      button.append(line);
+    }
+    button.addEventListener('click', () => {
+      if (kind === 'track') chooseTrack(item.id);
+      else chooseCar(item.id);
+    });
+    list.append(button);
+  }
 }
 
 for (const car of CARS) {
@@ -186,14 +254,39 @@ for (const car of CARS) {
   button.addEventListener('click', () => chooseCar(car.id));
   carList.append(button);
 }
-dressField(readSkin());
-chooseCar(getCar(readCar()).id);
+fillChoices(trackList, 'track');
+fillChoices(document.querySelector('#room-tracks'), 'track');
+fillChoices(document.querySelector('#room-cars'), 'car');
+
+playerSkin = getSkin(readSkin()).id;
+playerCar = getCar(readCar()).id;
+mountField(localSeats(gridCount, currentHuman()), track);
+paintTracks();
+paintGrid();
 
 document.querySelector('#play').addEventListener('click', () => beginRace());
-document.querySelector('#again').addEventListener('click', () => beginRace());
+document.querySelector('#host-room').addEventListener('click', () => openHost());
+againBtn.addEventListener('click', () => {
+  if (net.role === 'guest') return;
+  if (net.role === 'host') startRoom();
+  else beginRace();
+});
 document.querySelector('#back').addEventListener('click', () => showMenu());
 document.querySelector('#resume').addEventListener('click', () => resume());
 document.querySelector('#pause-menu').addEventListener('click', () => showMenu());
+document.querySelector('#grid-dec').addEventListener('click', () => setGrid(gridCount - 1));
+document.querySelector('#grid-inc').addEventListener('click', () => setGrid(gridCount + 1));
+document.querySelector('#room-grid-dec').addEventListener('click', () => {
+  if (net.role === 'host') setGrid(gridCount - 1);
+});
+document.querySelector('#room-grid-inc').addEventListener('click', () => {
+  if (net.role === 'host') setGrid(gridCount + 1);
+});
+document.querySelector('#room-copy').addEventListener('click', () => copyLink());
+document.querySelector('#room-start').addEventListener('click', () => startRoom());
+document.querySelector('#room-leave').addEventListener('click', () => showMenu());
+nameInput.addEventListener('change', () => rememberName(nameInput.value));
+roomName.addEventListener('change', () => rememberName(roomName.value));
 soundBtn.addEventListener('click', toggleSound);
 
 for (const button of document.querySelectorAll('#touch button')) {
@@ -228,14 +321,21 @@ function onKeyDown(event) {
   if (event.code === 'KeyE' && mode === 'race') useEdge = true;
   if (event.code === 'Escape') onEscape();
   if (event.code === 'Enter' && mode === 'menu') beginRace();
+  if (event.code === 'Enter' && mode === 'lobby' && net.role === 'host') startRoom();
 }
 
 function onEscape() {
+  if (mode === 'lobby') {
+    showMenu();
+    return;
+  }
   if (mode === 'race') {
+    if (net.role) return;
     mode = 'pause';
     document.body.dataset.mode = mode;
     pauseEl.hidden = false;
     audio.quiet();
+    audio.bed(0.32);
   } else if (mode === 'pause') {
     resume();
   } else if (mode === 'results' || mode === 'arrived') {
@@ -251,11 +351,8 @@ function toggleSound() {
     /* ignore private mode */
   }
   syncSoundButton();
-  if (soundOn && (mode === 'race' || mode === 'countdown' || mode === 'arrived')) {
-    audio.resume();
-  } else {
-    audio.quiet();
-  }
+  if (soundOn) audio.resume();
+  else audio.quiet();
 }
 
 function syncSoundButton() {
@@ -264,9 +361,527 @@ function syncSoundButton() {
   audio.setMuted(!soundOn);
 }
 
+function currentHuman() {
+  return { name: racerName, skin: playerSkin, car: playerCar };
+}
+
+function rememberName(value) {
+  racerName = cleanName(value);
+  nameInput.value = racerName;
+  roomName.value = racerName;
+  try {
+    localStorage.setItem(NAME_KEY, racerName);
+  } catch {
+    /* ignore private mode */
+  }
+  if (mode === 'menu') mountField(localSeats(gridCount, currentHuman()), track);
+  if (mode === 'lobby') sendProfile();
+}
+
+function paintGrid() {
+  const label = `${gridCount} pilotos`;
+  gridValue.textContent = label;
+  roomGridValue.textContent = label;
+}
+
+function paintTracks() {
+  for (const button of document.querySelectorAll('#tracks button, #room-tracks button')) {
+    button.setAttribute('aria-selected', button.dataset.track === trackId ? 'true' : 'false');
+  }
+}
+
+function setGrid(next) {
+  const floor = net.role === 'host' ? Math.max(GRID_MIN, lobbyPlayers.length) : GRID_MIN;
+  gridCount = Math.max(floor, Math.min(GRID_MAX, next));
+  try {
+    localStorage.setItem(GRID_KEY, String(gridCount));
+  } catch {
+    /* ignore private mode */
+  }
+  paintGrid();
+  if (mode === 'menu') mountField(localSeats(gridCount, currentHuman()), track);
+  if (mode === 'lobby' && net.role === 'host') broadcastLobby();
+}
+
+function chooseTrack(id) {
+  if (mode === 'lobby' && net.role !== 'host') return;
+  trackId = getTrack(id).id;
+  try {
+    localStorage.setItem(TRACK_KEY, trackId);
+  } catch {
+    /* ignore private mode */
+  }
+  paintTracks();
+  const next = buildTrack(trackId);
+  if (mode === 'menu') mountField(localSeats(gridCount, currentHuman()), next);
+  if (mode === 'lobby' && net.role === 'host') {
+    track = next;
+    broadcastLobby();
+  }
+}
+
+function dropViews() {
+  for (const view of views.values()) {
+    world.scene.remove(view.group);
+    world.scene.remove(view.blob);
+  }
+  views.clear();
+}
+
+function mountField(seats, nextTrack) {
+  painting = true;
+  if (nextTrack && nextTrack !== track) {
+    track = nextTrack;
+    world.setCourse(track);
+  }
+  trackId = track.id;
+  audio.setTrack(trackId);
+  dropViews();
+  itemView?.dispose();
+  capybaraView?.dispose();
+  racers = spawnField(seats, track);
+  player = racers.find((racer) => racer.local) || null;
+  items = createItemField(track, racers.length);
+  itemView = createItemView(world.scene, items, racers);
+  herd = createCapybaras(track);
+  capybaraView = createCapybaraView(world.scene, herd);
+  for (const racer of racers) {
+    const view = createKartView(racer);
+    world.scene.add(view.group);
+    world.scene.add(view.blob);
+    views.set(racer, view);
+  }
+  map = mapSpace();
+  dressField(playerSkin);
+  if (player) chooseCar(playerCar);
+  painting = false;
+}
+
+function setSalaParam(code) {
+  const url = new URL(location.href);
+  if (code) url.searchParams.set('sala', code);
+  else url.searchParams.delete('sala');
+  history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function showLobby(status) {
+  mode = 'lobby';
+  document.body.dataset.mode = mode;
+  menu.hidden = true;
+  lobbyEl.hidden = false;
+  results.hidden = true;
+  pauseEl.hidden = true;
+  hud.hidden = true;
+  minimap.hidden = true;
+  countdownEl.hidden = true;
+  wrong.hidden = true;
+  roomStatus.textContent = status;
+  paintLobby();
+}
+
+function paintLobby() {
+  const host = net.role === 'host';
+  roomCodeEl.textContent = (net.code || '----').toUpperCase();
+  document.querySelector('#room-setup').hidden = !host;
+  document.querySelector('#room-start').hidden = !host;
+  roomPlayers.replaceChildren();
+  for (const person of lobbyPlayers) {
+    const li = document.createElement('li');
+    const who = document.createElement('strong');
+    who.textContent = person.name;
+    const tag = document.createElement('span');
+    tag.textContent = person.id === net.selfId ? 'você' : person.host ? 'anfitrião' : 'piloto';
+    li.append(who, tag);
+    roomPlayers.append(li);
+  }
+  const empty = gridCount - lobbyPlayers.length;
+  if (empty > 0) {
+    const li = document.createElement('li');
+    const who = document.createElement('strong');
+    who.textContent = empty === 1 ? '1 bot' : `${empty} bots`;
+    const tag = document.createElement('span');
+    tag.textContent = 'entram na largada';
+    li.append(who, tag);
+    roomPlayers.append(li);
+  }
+}
+
+function previewRoom() {
+  const seats = roomSeats(lobbyPlayers, gridCount).map((seat) => ({
+    ...seat,
+    local: seat.id === net.selfId,
+  }));
+  mountField(seats, buildTrack(trackId));
+  paintTracks();
+  paintGrid();
+}
+
+function broadcastLobby() {
+  const msg = { t: 'lobby', code: net.code, track: trackId, grid: gridCount, players: lobbyPlayers };
+  net.broadcast(msg);
+  paintLobby();
+  if (mode === 'lobby') previewRoom();
+}
+
+function sendProfile() {
+  if (net.role === 'host') {
+    const me = lobbyPlayers.find((person) => person.id === net.selfId);
+    if (me) {
+      me.name = racerName;
+      me.skin = playerSkin;
+      me.car = playerCar;
+    }
+    broadcastLobby();
+  } else if (net.role === 'guest') {
+    net.send({ t: 'profile', name: racerName, skin: playerSkin, car: playerCar });
+  }
+}
+
+function selfPlayer() {
+  return { id: net.selfId, name: racerName, skin: playerSkin, car: playerCar, host: net.role === 'host' };
+}
+
+function openHost() {
+  wantHost = true;
+  roomTries = 0;
+  lobbyPlayers = [];
+  showLobby('Conectando…');
+  net.host(makeCode());
+}
+
+function openGuest(code) {
+  wantHost = false;
+  lobbyPlayers = [];
+  showLobby('Entrando na sala…');
+  roomCodeEl.textContent = code.toUpperCase();
+  net.join(code);
+}
+
+async function copyLink() {
+  try {
+    await navigator.clipboard.writeText(location.href);
+    roomStatus.textContent = 'Link copiado. Quem abrir entra na sala.';
+  } catch {
+    roomStatus.textContent = location.href;
+  }
+}
+
+function startRoom() {
+  if (net.role !== 'host') return;
+  const seats = roomSeats(lobbyPlayers, gridCount);
+  net.broadcast({
+    t: 'start',
+    track: trackId,
+    seats: seats.map((seat) => ({
+      id: seat.id,
+      name: seat.name,
+      skin: seat.skin,
+      car: seat.car,
+      human: seat.human,
+      bot: seat.bot,
+      host: seat.host,
+    })),
+  });
+  beginOnline(seats);
+}
+
+function beginOnline(seats) {
+  const marked = seats.map((seat) => ({ ...seat, local: seat.id === net.selfId }));
+  samples.length = 0;
+  guestFinished = false;
+  roomOverAt = 0;
+  inputSend = 0;
+  stateSend = 0;
+  mountField(marked, buildTrack(trackId));
+  beginRace();
+}
+
+function onNet(from, msg) {
+  if (!msg || typeof msg !== 'object') return;
+  if (msg.t === 'join' && net.role === 'host') {
+    const racing = mode === 'countdown' || mode === 'race' || mode === 'arrived' || mode === 'results';
+    if (racing || lobbyPlayers.length >= gridCount || lobbyPlayers.some((person) => person.id === from)) {
+      net.sendTo(from, { t: 'full' });
+      return;
+    }
+    lobbyPlayers.push({
+      id: from,
+      name: cleanName(msg.name),
+      skin: msg.skin,
+      car: msg.car,
+      host: false,
+    });
+    broadcastLobby();
+    return;
+  }
+  if (msg.t === 'profile' && net.role === 'host') {
+    const person = lobbyPlayers.find((item) => item.id === from);
+    if (!person) return;
+    person.name = cleanName(msg.name);
+    person.skin = msg.skin;
+    person.car = msg.car;
+    broadcastLobby();
+    return;
+  }
+  if (msg.t === 'leave') {
+    dropPeer(from);
+    return;
+  }
+  if (msg.t === 'lobby' && net.role === 'guest') {
+    trackId = getTrack(msg.track).id;
+    gridCount = clampGrid(msg.grid);
+    lobbyPlayers = Array.isArray(msg.players) ? msg.players : [];
+    roomStatus.textContent = 'Esperando o anfitrião largar. Os lugares vazios entram com bots.';
+    paintLobby();
+    if (mode === 'lobby') previewRoom();
+    return;
+  }
+  if (msg.t === 'start') {
+    trackId = getTrack(msg.track).id;
+    beginOnline(msg.seats || []);
+    return;
+  }
+  if (msg.t === 'input' && net.role === 'host') {
+    const racer = racers.find((item) => item.id === from);
+    if (!racer) return;
+    racer.netInput = {
+      throttle: msg.throttle ? 1 : 0,
+      brake: msg.brake ? 1 : 0,
+      reverse: !!msg.brake,
+      steer: Math.max(-1, Math.min(1, Number(msg.steer) || 0)),
+      drift: !!msg.drift,
+      glide: !!msg.glide,
+    };
+    if (msg.use) racer.netUse = true;
+    return;
+  }
+  if (msg.t === 'state' && net.role === 'guest') {
+    samples.push({ at: performance.now(), msg });
+    if (samples.length > 40) samples.shift();
+    return;
+  }
+  if (msg.t === 'full' || msg.t === 'closed') {
+    const full = msg.t === 'full';
+    showMenu();
+    if (full) showCallout('Sala cheia');
+    else showCallout('A sala fechou');
+  }
+}
+
+function dropPeer(id) {
+  lobbyPlayers = lobbyPlayers.filter((person) => person.id !== id);
+  const racing = mode === 'countdown' || mode === 'race' || mode === 'arrived';
+  const racer = racers.find((item) => item.id === id);
+  if (racing && racer) {
+    racer.human = false;
+    racer.local = false;
+    racer.player = false;
+    return;
+  }
+  if (mode === 'lobby' && net.role === 'host') broadcastLobby();
+}
+
+const net = createOnline({
+  onOpen() {
+    if (net.role !== 'host') return;
+    lobbyPlayers = [selfPlayer()];
+    setSalaParam(net.code);
+    roomStatus.textContent = 'Esperando pilotos. Os lugares vazios entram com bots.';
+    broadcastLobby();
+  },
+  onReady() {
+    if (net.role !== 'guest') return;
+    setSalaParam(net.code);
+    net.send({ t: 'join', name: racerName, skin: playerSkin, car: playerCar });
+    roomStatus.textContent = 'Conectado. Esperando a sala…';
+  },
+  onData(from, msg) {
+    onNet(from, msg);
+  },
+  onLeave(id) {
+    dropPeer(id);
+  },
+  onClosed() {
+    if (closingMenu || mode === 'menu') return;
+    showMenu();
+    showCallout('A sala fechou');
+  },
+  onError(error) {
+    if (wantHost && error?.type === 'unavailable-id' && roomTries < 4) {
+      roomTries += 1;
+      net.host(makeCode());
+      return;
+    }
+    roomStatus.textContent = wantHost
+      ? 'Não consegui abrir a sala. Tenta de novo.'
+      : 'Não achei essa sala. Confere o link.';
+  },
+});
+
+const pendingSala = normalizeCode(new URLSearchParams(location.search).get('sala'));
+if (pendingSala) openGuest(pendingSala);
+
+function roundNet(value) {
+  return Math.round(value * 100) / 100;
+}
+
+function packState() {
+  return {
+    t: 'state',
+    time: raceTime,
+    mode,
+    phase: countdownPhase,
+    over: mode === 'results',
+    racers: racers.map((racer) => [
+      racer.id,
+      roundNet(racer.x),
+      roundNet(racer.z),
+      roundNet(racer.yaw),
+      roundNet(racer.speed),
+      roundNet(racer.steer),
+      roundNet(racer.slide),
+      roundNet(racer.s),
+      racer.lap,
+      roundNet(racer.travel),
+      racer.finished ? 1 : 0,
+      racer.finished ? roundNet(racer.finishTime || 0) : 0,
+      roundNet(racer.driftTime),
+      racer.drifting ? 1 : 0,
+      roundNet(racer.boost),
+      racer.boostFrom || '',
+      racer.item || '',
+      racer.rolling ? 1 : 0,
+      roundNet(racer.stun),
+      racer.stunKind || '',
+      roundNet(racer.reverseTime),
+      racer.bestLap == null ? -1 : roundNet(racer.bestLap),
+      racer.driftKind === 'soft' ? 2 : racer.driftKind === 'sharp' ? 1 : 0,
+    ]),
+    boxes: items.boxes.map((box) => [box.alive ? 1 : 0, roundNet(box.cooldown), roundNet(box.pop)]),
+    peels: items.peels.map((peel) => (peel.active ? [roundNet(peel.x), roundNet(peel.z), roundNet(peel.yaw)] : 0)),
+    shots: items.shots.map((shot) => (shot.active ? [roundNet(shot.x), roundNet(shot.z), roundNet(shot.yaw)] : 0)),
+    capybaras: herd.map((animal) => [roundNet(animal.x), roundNet(animal.z), roundNet(animal.yaw)]),
+  };
+}
+
+function rowById(list, id) {
+  for (const row of list) if (row[0] === id) return row;
+  return null;
+}
+
+function syncGuest() {
+  if (!samples.length || !player) return;
+  const when = performance.now() - 90;
+  let older = samples[0];
+  let newer = samples[samples.length - 1];
+  for (let i = samples.length - 1; i >= 0; i -= 1) {
+    if (samples[i].at <= when) {
+      older = samples[i];
+      newer = samples[Math.min(samples.length - 1, i + 1)];
+      break;
+    }
+  }
+  const span = Math.max(1, newer.at - older.at);
+  const t = older === newer ? 1 : Math.min(1, Math.max(0, (when - older.at) / span));
+  const latest = newer.msg;
+  raceTime = (older.msg.time || 0) + ((latest.time || 0) - (older.msg.time || 0)) * t;
+  clock.raceTime = raceTime;
+  for (const row of latest.racers || []) {
+    const racer = racers.find((item) => item.id === row[0]);
+    if (!racer) continue;
+    const prev = rowById(older.msg.racers || [], row[0]) || row;
+    racer.x = prev[1] + (row[1] - prev[1]) * t;
+    racer.z = prev[2] + (row[2] - prev[2]) * t;
+    racer.yaw = lerpAngle(prev[3], row[3], t);
+    racer.speed = prev[4] + (row[4] - prev[4]) * t;
+    racer.steer = row[5];
+    racer.slide = row[6];
+    racer.s = row[7];
+    racer.lap = row[8];
+    racer.travel = row[9];
+    racer.finished = !!row[10];
+    racer.finishTime = row[10] ? row[11] : null;
+    racer.driftTime = row[12];
+    racer.drifting = !!row[13];
+    racer.driftKind = row[22] === 2 ? 'soft' : row[22] === 1 ? 'sharp' : null;
+    racer.boost = row[14];
+    racer.boostFrom = row[15] || null;
+    racer.item = row[16] || null;
+    racer.rolling = !!row[17];
+    racer.stun = row[18];
+    racer.stunKind = row[19] || null;
+    racer.reverseTime = row[20];
+    racer.bestLap = row[21] < 0 ? null : row[21];
+  }
+  (latest.boxes || []).forEach((box, index) => {
+    const target = items.boxes[index];
+    if (!target) return;
+    target.alive = !!box[0];
+    target.cooldown = box[1];
+    target.pop = box[2];
+  });
+  (latest.peels || []).forEach((peel, index) => {
+    const target = items.peels[index];
+    if (!target) return;
+    if (!peel) {
+      target.active = false;
+      return;
+    }
+    target.active = true;
+    target.x = peel[0];
+    target.z = peel[1];
+    target.yaw = peel[2];
+  });
+  (latest.shots || []).forEach((shot, index) => {
+    const target = items.shots[index];
+    if (!target) return;
+    if (!shot) {
+      target.active = false;
+      return;
+    }
+    target.active = true;
+    target.x = shot[0];
+    target.z = shot[1];
+    target.yaw = shot[2];
+  });
+  (latest.capybaras || []).forEach((row, index) => {
+    const animal = herd[index];
+    if (!animal || !row) return;
+    const prev = (older.msg.capybaras || [])[index] || row;
+    animal.x = prev[0] + (row[0] - prev[0]) * t;
+    animal.z = prev[1] + (row[1] - prev[1]) * t;
+    animal.yaw = lerpAngle(prev[2], row[2], t);
+  });
+  if (mode === 'countdown') {
+    const phase = latest.phase || 0;
+    const label = phase >= 4 ? 'VAI!' : phase === 3 ? '1' : phase === 2 ? '2' : '3';
+    if (phase && phase !== countdownPhase) {
+      countdownPhase = phase;
+      countdownEl.textContent = label;
+      setLights(world.bulbs, phase);
+      if (phase === 4) audio.go();
+      else audio.beep(phase);
+    }
+    if (phase >= 4) startDriving();
+  }
+  if (latest.over && mode !== 'results' && mode !== 'menu') endRace();
+  if (player.finished && !guestFinished && (mode === 'race' || mode === 'countdown')) {
+    guestFinished = true;
+    showCallout('Chegou!');
+    audio.fanfare();
+    arrivedT = 0;
+    mode = 'arrived';
+    document.body.dataset.mode = mode;
+  }
+  if (!results.hidden && mode !== 'menu') paintResults();
+}
+
 function beginRace() {
   audio.resume();
-  for (const racer of racers) resetRacer(racer);
+  for (const racer of racers) {
+    resetRacer(racer);
+    racer.capyGrace = 0;
+  }
   raceTime = 0;
   clock.raceTime = 0;
   countdownT = 0;
@@ -289,6 +904,7 @@ function beginRace() {
   results.hidden = true;
   pauseEl.hidden = true;
   menu.hidden = true;
+  lobbyEl.hidden = true;
   hud.hidden = false;
   minimap.hidden = false;
   countdownEl.hidden = false;
@@ -296,6 +912,7 @@ function beginRace() {
   wrong.hidden = true;
   mode = 'countdown';
   document.body.dataset.mode = mode;
+  audio.bed(1);
   layoutRacers();
 }
 
@@ -309,37 +926,41 @@ function startDriving() {
 }
 
 function showMenu() {
-  for (const racer of racers) resetRacer(racer);
+  if (closingMenu) return;
+  closingMenu = true;
+  if (net.role) net.leave();
+  wantHost = false;
+  lobbyPlayers = [];
+  samples.length = 0;
+  setSalaParam(null);
+  mountField(localSeats(gridCount, currentHuman()), buildTrack(trackId));
   mode = 'menu';
   document.body.dataset.mode = mode;
   menu.hidden = false;
+  lobbyEl.hidden = true;
   hud.hidden = true;
   minimap.hidden = true;
   results.hidden = true;
   pauseEl.hidden = true;
   countdownEl.hidden = true;
   wrong.hidden = true;
+  againBtn.disabled = false;
+  againBtn.textContent = 'Jogar de novo';
   setLights(world.bulbs, 0);
   resetItems(items);
-  for (const racer of racers) racer.item = null;
   audio.quiet();
+  audio.bed(1);
   Object.keys(touch).forEach((key) => {
     touch[key] = false;
   });
   layoutRacers();
+  closingMenu = false;
 }
 
-function resume() {
-  mode = 'race';
-  document.body.dataset.mode = mode;
-  pauseEl.hidden = true;
-  if (soundOn) audio.resume();
-}
-
-function showResults() {
+function paintResults() {
   const order = rankRacers(racers);
   const place = order.findIndex((racer) => racer.player) + 1;
-  flavorEl.textContent = FLAVOR[place] || 'Corrida encerrada.';
+  flavorEl.textContent = FLAVOR[place] || `${place}º de ${order.length}. A pista ainda está quente.`;
   standingsEl.replaceChildren();
   order.forEach((racer, index) => {
     const li = document.createElement('li');
@@ -352,9 +973,29 @@ function showResults() {
     standingsEl.append(li);
   });
   results.hidden = false;
+  againBtn.disabled = net.role === 'guest';
+  againBtn.textContent = net.role === 'guest' ? 'O anfitrião recomeça' : 'Jogar de novo';
+}
+
+function resume() {
+  mode = 'race';
+  document.body.dataset.mode = mode;
+  pauseEl.hidden = true;
+  audio.bed(1);
+  if (soundOn) audio.resume();
+}
+
+function endRace() {
+  paintResults();
   mode = 'results';
   document.body.dataset.mode = mode;
   audio.quiet();
+  audio.bed(0.4);
+  if (net.role === 'host') net.broadcast(packState());
+}
+
+function showResults() {
+  endRace();
 }
 
 function showCallout(text) {
@@ -376,6 +1017,7 @@ function readInput() {
     reverse: brake > 0,
     steer,
     drift: keys.has('Space') || touch.drift,
+    glide: keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.glide,
   };
 }
 
@@ -394,7 +1036,9 @@ function simulate(dt, tryUse) {
     }
     let input = EMPTY;
     if (!racer.finished && (mode === 'race' || mode === 'arrived')) {
-      input = racer.player && mode === 'race' ? readInput() : racer.player ? EMPTY : aiInput(racer, track, raceTime);
+      if (racer.local && mode === 'race') input = readInput();
+      else if (racer.human) input = racer.netInput || EMPTY;
+      else input = aiInput(racer, track, raceTime);
     }
     stepRacer(racer, input, dt, track, {
       get raceTime() {
@@ -408,11 +1052,16 @@ function simulate(dt, tryUse) {
       },
       onFinish(who) {
         if (!who.player) return;
+        showCallout('Chegou!');
+        audio.fanfare();
+        const others = net.role === 'host' && racers.some((racer) => racer.human && racer !== who && !racer.finished);
+        if (others) {
+          if (!roomOverAt) roomOverAt = raceTime + 40;
+          return;
+        }
         mode = 'arrived';
         document.body.dataset.mode = mode;
         arrivedT = 0;
-        showCallout('Chegou!');
-        audio.fanfare();
       },
       onWall(who) {
         if (who.player) audio.thud();
@@ -466,6 +1115,13 @@ function simulate(dt, tryUse) {
       audio.thud();
     },
   });
+  stepCapybaras(herd, dt, track, raceTime);
+  hitCapybaras(herd, racers, dt, (who) => {
+    burst(who, 0x8a5a32, 0.85);
+    if (!who.player) return;
+    showCallout('Capivara!');
+    audio.thud();
+  });
 }
 
 function updateCountdown(dt) {
@@ -496,8 +1152,28 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
-  if (mode === 'countdown') updateCountdown(dt);
-  if (mode === 'race' || mode === 'arrived') {
+  if (net.role === 'guest') {
+    if (mode === 'race') {
+      inputSend += dt;
+      if (inputSend >= 1 / 30) {
+        inputSend = 0;
+        const input = readInput();
+        net.send({
+          t: 'input',
+          throttle: input.throttle,
+          brake: input.brake,
+          steer: input.steer,
+          drift: input.drift,
+          glide: input.glide,
+          use: useEdge,
+        });
+        useEdge = false;
+      }
+    }
+    syncGuest();
+  } else if (mode === 'countdown') updateCountdown(dt);
+
+  if (net.role !== 'guest' && (mode === 'race' || mode === 'arrived')) {
     acc += dt;
     let tryUse = false;
     if (mode === 'race' && useEdge) {
@@ -511,9 +1187,24 @@ function frame(now) {
       acc -= STEP;
       guard += 1;
     }
-  } else {
+  } else if (net.role !== 'guest') {
     acc = 0;
     useEdge = false;
+    stepCapybaras(herd, dt, track, now / 1000);
+  }
+
+  if (net.role === 'host' && (mode === 'countdown' || mode === 'race' || mode === 'arrived')) {
+    stateSend += dt;
+    if (stateSend >= 0.05) {
+      stateSend = 0;
+      net.broadcast(packState());
+    }
+    if (mode === 'race' && player?.finished) {
+      arrivedT += dt;
+      if (arrivedT > 1.15 && results.hidden) paintResults();
+      const pending = racers.some((racer) => racer.human && !racer.finished);
+      if (!pending || (roomOverAt && raceTime > roomOverAt)) endRace();
+    }
   }
 
   if (mode === 'arrived') {
@@ -524,6 +1215,7 @@ function frame(now) {
   const time = now / 1000;
   layoutRacers(time, dt);
   itemView.update(items, racers, time);
+  capybaraView?.update(herd, time);
   updateCamera(dt, time);
   updateHud();
   drawMinimap();
@@ -559,8 +1251,10 @@ function layoutRacers(time = 0, dt = 0) {
     view.hop = Math.max(0, view.hop - dt * 1.5);
     let hop = Math.sin(view.hop * Math.PI) * 0.32 + bob;
     if (racer.driftHop > 0) {
-      const t = 1 - racer.driftHop / TUNING.driftHop;
-      hop += Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * 0.2;
+      const span = racer.hopSpan || TUNING.driftHop;
+      const t = 1 - racer.driftHop / span;
+      const lift = span < TUNING.driftHop * 0.75 ? 0.1 : 0.2;
+      hop += Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * lift;
     }
     view.group.position.set(racer.x, hop, racer.z);
     view.blob.position.set(racer.x, 0.045, racer.z);
@@ -614,11 +1308,14 @@ function layoutRacers(time = 0, dt = 0) {
 
 function updateCamera(dt, time) {
   const camera = world.camera;
-  if (mode === 'menu' || mode === 'results') {
+  if (mode === 'menu' || mode === 'results' || mode === 'lobby') {
+    const span = Math.max(track.bounds.maxX - track.bounds.minX, track.bounds.maxZ - track.bounds.minZ, 120);
+    const orbit = Math.max(108, span * 0.72);
+    const lift = Math.max(72, span * 0.42);
     menuAng += dt * 0.16;
-    desired.x = Math.sin(menuAng) * 118;
-    desired.y = 72;
-    desired.z = Math.cos(menuAng) * 104;
+    desired.x = Math.sin(menuAng) * orbit;
+    desired.y = lift;
+    desired.z = Math.cos(menuAng) * orbit;
     look.x = 0;
     look.y = 0;
     look.z = -4;
@@ -726,9 +1423,12 @@ function updateHud() {
   const showDrift = mode === 'race' && (player.drifting || player.driftTime > 0);
   driftBar.hidden = !showDrift;
   if (showDrift) {
-    const amount = Math.min(1, player.driftTime / TUNING.driftMin);
+    const soft = player.driftKind === 'soft';
+    const need = soft ? TUNING.softMin : TUNING.driftMin;
+    const amount = Math.min(1, player.driftTime / need);
     driftFill.style.width = `${amount * 100}%`;
-    driftFill.classList.toggle('ready', player.driftTime >= TUNING.driftMin);
+    driftBar.classList.toggle('soft', soft);
+    driftFill.classList.toggle('ready', player.driftTime >= need);
   }
 }
 
@@ -759,6 +1459,14 @@ function drawMinimap() {
   mapCtx.beginPath();
   mapCtx.arc(w / 2, h / 2, w / 2 - 8, 0, Math.PI * 2);
   mapCtx.clip();
+  if (track.lake) {
+    const rx = Math.abs(map.X(track.lake.x + track.lake.rx) - map.X(track.lake.x));
+    const ry = Math.abs(map.Y(track.lake.z + track.lake.rz) - map.Y(track.lake.z));
+    mapCtx.fillStyle = 'rgba(60, 157, 140, 0.9)';
+    mapCtx.beginPath();
+    mapCtx.ellipse(map.X(track.lake.x), map.Y(track.lake.z), rx, ry, 0, 0, Math.PI * 2);
+    mapCtx.fill();
+  }
   mapCtx.beginPath();
   track.points.forEach((point, index) => {
     const x = map.X(point.x);
@@ -767,7 +1475,7 @@ function drawMinimap() {
     else mapCtx.lineTo(x, y);
   });
   mapCtx.closePath();
-  mapCtx.strokeStyle = '#e7c89a';
+  mapCtx.strokeStyle = track.theme === 'parque' ? '#7d927c' : '#e7c89a';
   mapCtx.lineWidth = 12;
   mapCtx.lineJoin = 'round';
   mapCtx.stroke();
@@ -792,6 +1500,12 @@ function drawMinimap() {
     mapCtx.lineWidth = 1;
     mapCtx.strokeStyle = '#f5e6d0';
     mapCtx.stroke();
+  }
+  for (const animal of herd) {
+    mapCtx.beginPath();
+    mapCtx.fillStyle = '#6b4428';
+    mapCtx.arc(map.X(animal.x), map.Y(animal.z), 3.6, 0, Math.PI * 2);
+    mapCtx.fill();
   }
   for (const racer of racers) {
     mapCtx.beginPath();

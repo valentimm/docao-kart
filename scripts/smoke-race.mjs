@@ -1,4 +1,4 @@
-import { buildTrack, clearance, project } from '../src/track.js';
+import { buildTrack, clearance, poseAt, project } from '../src/track.js';
 import { ROSTER, TOTAL_LAPS } from '../src/roster.js';
 import { SKINS, assignSkins, getSkin } from '../src/skins.js';
 import {
@@ -19,6 +19,7 @@ import {
   useHeldItem,
   botWantsUse,
 } from '../src/items.js';
+import { createCapybaras, stepCapybaras, hitCapybaras } from '../src/capybaras.js';
 
 const failures = [];
 function check(cond, message) {
@@ -180,6 +181,8 @@ check(useHeldItem(holder, boxes) == null, 'deu para usar no quadro da coleta');
 check(!holder.boostFrom, 'a coleta já soltou a pamonha');
 check(!rival.item && !rival.rolling, 'dois pilotos pegaram a mesma caixa');
 check(!box.alive, 'caixa não sumiu');
+const sibling = boxes.boxes.find((other) => other.line === box.line && other !== box);
+check(sibling?.alive, 'a linha inteira sumiu com um copo');
 stepItems(boxes, [holder, rival], 1 / 60, track, { rng: () => 0.9, playerUse: true, time: 0 });
 check(holder.award === 'pamonha' && holder.rolling, 'item trocou sozinho');
 check(!rival.item, 'caixa respawnou cedo demais');
@@ -402,6 +405,113 @@ check(distinct.docao === 'classico', 'jogador não ficou no clássico');
 check(new Set(Object.values(distinct)).size === 4, 'pilotos repetiram o visual');
 const swapped = assignSkins('clube');
 check(swapped.docao === 'clube' && swapped.hortela !== 'clube', 'bot ficou com o visual do jogador');
+
+const park = buildTrack('barigui');
+const parkGap = clearance(park);
+check(park.id === 'barigui', 'Barigui não carregou');
+check(park.length > 420 && park.length < 700, `Barigui com tamanho estranho: ${park.length}`);
+check(parkGap.min > 18, `Barigui se cruza (${parkGap.min.toFixed(1)} m)`);
+check(park.lake && Math.abs(project(park, park.lake.x, park.lake.z).lateral) > park.halfWidth + 8, 'lago do Barigui invadiu a pista');
+check(park.open && !track.open, 'só o Barigui ficou sem cerca');
+
+const grassKart = spawnRacer(ROSTER[0], park, { row: 0, side: 1 });
+const grassPose = poseAt(park, 0.04, park.halfWidth + 5);
+grassKart.x = grassPose.x;
+grassKart.z = grassPose.z;
+grassKart.yaw = grassPose.yaw;
+grassKart.s = grassPose.s;
+grassKart.lateral = grassPose.lateral;
+grassKart.speed = 14;
+const hold = { throttle: 1, brake: 0, reverse: false, steer: 0, drift: false };
+for (let i = 0; i < 50; i += 1) {
+  stepRacer(grassKart, hold, 1 / 60, park, { raceTime: i / 60, totalLaps: TOTAL_LAPS });
+}
+const onGrass = project(park, grassKart.x, grassKart.z);
+check(Math.abs(onGrass.lateral) > park.halfWidth + 1, 'a grama devolveu o kart para o asfalto');
+check(grassKart.speed < 7, `grama não segurou o kart (${grassKart.speed.toFixed(1)})`);
+
+const farPose = poseAt(park, 0.04, park.offLimit + 10);
+grassKart.x = farPose.x;
+grassKart.z = farPose.z;
+grassKart.yaw = farPose.yaw;
+grassKart.s = farPose.s;
+grassKart.lateral = farPose.lateral;
+grassKart.speed = 10;
+stepRacer(grassKart, hold, 1 / 60, park, { raceTime: 1, totalLaps: TOTAL_LAPS });
+const held = project(park, grassKart.x, grassKart.z);
+check(Math.abs(held.lateral) <= park.offLimit + 0.2, `o limite invisível deixou o kart ir embora (${held.lateral.toFixed(1)})`);
+
+grassKart.x = park.lake.x;
+grassKart.z = park.lake.z;
+grassKart.speed = 8;
+stepRacer(grassKart, hold, 1 / 60, park, { raceTime: 1, totalLaps: TOTAL_LAPS });
+const dx = grassKart.x - park.lake.x;
+const dz = grassKart.z - park.lake.z;
+const inLake = (dx * dx) / (park.lake.rx * park.lake.rx) + (dz * dz) / (park.lake.rz * park.lake.rz);
+check(inLake >= 1, 'o kart atravessou o lago');
+
+const { spawnField, localSeats, roomSeats, clampGrid } = await import('../src/field.js');
+check(clampGrid(2) === 4 && clampGrid(20) === 16 && clampGrid(9) === 9, 'grid fora de 4 a 16');
+const big = spawnField(localSeats(16, { name: 'Docão', skin: 'classico', car: 'arranque' }), park);
+check(big.length === 16, 'grid de 16 não fechou');
+check(big.filter((racer) => racer.local).length === 1, 'faltou o piloto local');
+for (const racer of big) {
+  const spot = project(park, racer.x, racer.z);
+  check(Math.abs(spot.lateral) < park.halfWidth - 0.3, `${racer.name} largou fora da pista do Barigui`);
+}
+const room = roomSeats(
+  [
+    { id: 'host', name: 'Ana', skin: 'classico', car: 'veloz', host: true },
+    { id: 'guest', name: 'Bia', skin: 'clube', car: 'fechada' },
+  ],
+  6,
+);
+check(room.length === 6 && room[0].human && room[1].human && room.filter((seat) => !seat.human).length === 4, 'sala não completou com bots');
+
+check(createCapybaras(track).length === 0, 'a feira ganhou capivara');
+const herd = createCapybaras(park);
+check(herd.length === 3, 'o Barigui não ficou com três capivaras');
+for (let i = 0; i < 500; i += 1) stepCapybaras(herd, 1 / 60, park, i / 60);
+for (const animal of herd) {
+  check(animal.s >= animal.from - 0.001 && animal.s <= animal.to + 0.001, 'capivara saiu do trecho');
+  check(Math.abs(animal.lateral) < 1.2, 'capivara saiu do meio da pista');
+  check(Math.abs(project(park, animal.x, animal.z).lateral) < 2, 'capivara fora do asfalto');
+}
+const victim = spawnRacer(ROSTER[0], park, { row: 0, side: 1 });
+victim.x = herd[0].x;
+victim.z = herd[0].z;
+victim.speed = 12;
+victim.capyGrace = 0;
+hitCapybaras(herd, [victim], 1 / 60);
+check(victim.speed < 8, 'batida na capivara não tirou velocidade');
+
+const sharpKart = spawnRacer(ROSTER[0], track, { row: 2, side: 1 });
+const softKart = spawnRacer(ROSTER[1], track, { row: 2, side: -1 });
+sharpKart.speed = 12;
+softKart.speed = 12;
+const sharpIn = { throttle: 1, brake: 0, reverse: false, steer: 0.45, drift: true, glide: false };
+const softIn = { throttle: 1, brake: 0, reverse: false, steer: 0.45, drift: false, glide: true };
+const quiet = { throttle: 1, brake: 0, reverse: false, steer: 0, drift: false, glide: false };
+stepRacer(sharpKart, sharpIn, 0.04, track, { raceTime: 0, totalLaps: TOTAL_LAPS });
+stepRacer(softKart, softIn, 0.04, track, { raceTime: 0, totalLaps: TOTAL_LAPS });
+check(softKart.driftKind === 'soft' && sharpKart.driftKind === 'sharp', 'os dois tipos de derrapada não separaram');
+check(softKart.hopSpan < sharpKart.hopSpan, 'a derrapada suave pulou igual à forte');
+for (let i = 0; i < 30; i += 1) {
+  stepRacer(sharpKart, sharpIn, 1 / 60, track, { raceTime: i / 60, totalLaps: TOTAL_LAPS });
+  stepRacer(softKart, softIn, 1 / 60, track, { raceTime: i / 60, totalLaps: TOTAL_LAPS });
+}
+check(Math.abs(softKart.slide) < Math.abs(sharpKart.slide), 'a derrapada suave escorregou tanto quanto a forte');
+check(softKart.driftTime > 0.4 && softKart.driftTime < TUNING.softMin, 'a barra suave não demorou mais que a forte');
+softKart.driftTime = TUNING.driftMin + 0.05;
+stepRacer(softKart, quiet, 1 / 60, track, { raceTime: 2, totalLaps: TOTAL_LAPS });
+check(!softKart.boostFrom, 'a derrapada suave deu impulso antes da barra');
+softKart.speed = 12;
+softKart.drifting = true;
+softKart.driftKind = 'soft';
+softKart.driftSide = 1;
+softKart.driftTime = TUNING.softMin;
+stepRacer(softKart, quiet, 1 / 60, track, { raceTime: 3, totalLaps: TOTAL_LAPS });
+check(softKart.boostFrom === 'drift', 'soltar a derrapada suave não deu impulso');
 
 if (failures.length) {
   console.error(failures.map((item) => `- ${item}`).join('\n'));

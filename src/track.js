@@ -1,4 +1,4 @@
-/** Closed farm-circuit centerline. Pure math — no rendering. */
+/** Closed circuit centerlines. Pure math — no rendering. */
 
 export const HALF_WIDTH = 7.4;
 export const VISUAL_SHOULDER = 1.35;
@@ -6,9 +6,9 @@ export const KART_RADIUS = 1.15;
 
 /**
  * Hand-placed loop around a farm fairground.
- * Order is the driving direction. Finish line sits on the first span.
+ * Order is the driving direction. Finish line sits on the first point.
  */
-const CONTROL = [
+const FEIRA = [
   [-26, -50],
   [14, -46],
   [48, -30],
@@ -22,6 +22,58 @@ const CONTROL = [
   [-66, -12],
   [-44, -38],
 ];
+
+/**
+ * Parque Barigui, Curitiba — the road around the lake.
+ * South straight is Rua Doutor Aluízio França (the grid).
+ * East passes the pavilion, north winds through the woods,
+ * west comes back by the event center.
+ * Finish is the first point; the grid sits on the span before it.
+ */
+const BARIGUI = [
+  [-36, -58],
+  [18, -60],
+  [62, -44],
+  [78, -14],
+  [74, 16],
+  [52, 38],
+  [22, 54],
+  [-2, 40],
+  [-24, 58],
+  [-48, 42],
+  [-66, 58],
+  [-82, 32],
+  [-86, 4],
+  [-80, -24],
+  [-96, -58],
+];
+
+export const TRACKS = [
+  {
+    id: 'feira',
+    name: 'Feira',
+    line: 'O circuito da fazenda',
+    halfWidth: HALF_WIDTH,
+    theme: 'feira',
+    banner: ['DOCÃO KART', 'FEIRA DA FAZENDA'],
+    control: FEIRA,
+    lake: null,
+  },
+  {
+    id: 'barigui',
+    name: 'Barigui',
+    line: 'A volta do lago, em Curitiba',
+    halfWidth: 7.6,
+    theme: 'parque',
+    banner: ['BARIGUI', 'PARQUE DE CURITIBA'],
+    control: BARIGUI,
+    lake: { x: -6, z: -4, rx: 46, rz: 32 },
+  },
+];
+
+export function getTrack(id) {
+  return TRACKS.find((track) => track.id === id) || TRACKS[0];
+}
 
 function wrapIndex(i, n) {
   return ((i % n) + n) % n;
@@ -45,15 +97,15 @@ function catmull(p0, p1, p2, p3, t) {
   return [x, z];
 }
 
-function sampleRaw() {
+function sampleRaw(control) {
   const pts = [];
-  const n = CONTROL.length;
+  const n = control.length;
   const steps = 24;
   for (let i = 0; i < n; i += 1) {
-    const p0 = CONTROL[wrapIndex(i - 1, n)];
-    const p1 = CONTROL[i];
-    const p2 = CONTROL[wrapIndex(i + 1, n)];
-    const p3 = CONTROL[wrapIndex(i + 2, n)];
+    const p0 = control[wrapIndex(i - 1, n)];
+    const p1 = control[i];
+    const p2 = control[wrapIndex(i + 1, n)];
+    const p3 = control[wrapIndex(i + 2, n)];
     for (let s = 0; s < steps; s += 1) {
       pts.push(catmull(p0, p1, p2, p3, s / steps));
     }
@@ -101,8 +153,9 @@ function shortest(a, b) {
   return d;
 }
 
-export function buildTrack() {
-  const raw = sampleRaw();
+export function buildTrack(id = 'feira') {
+  const def = getTrack(id);
+  const raw = sampleRaw(def.control);
   const samples = resample(raw, 2.4);
   const n = samples.length;
   let length = 0;
@@ -133,10 +186,17 @@ export function buildTrack() {
 
   const origin = project({ points, length }, 0, 0);
   return {
+    id: def.id,
+    name: def.name,
+    theme: def.theme,
+    banner: def.banner,
+    lake: def.lake,
     points,
     length,
-    halfWidth: HALF_WIDTH,
-    shoulder: VISUAL_SHOULDER,
+    halfWidth: def.halfWidth,
+    shoulder: def.theme === 'parque' ? 1.7 : VISUAL_SHOULDER,
+    open: def.theme === 'parque',
+    offLimit: def.halfWidth + (def.theme === 'parque' ? 22 : 0),
     inwardSign: Math.sign(origin.lateral) || 1,
     bounds: boundsOf(points),
   };

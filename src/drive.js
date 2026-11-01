@@ -19,6 +19,13 @@ export const TUNING = {
   driftMin: 1.2,
   driftHop: 0.28,
   driftSlide: 0.11,
+  softMin: 2.4,
+  softHop: 0.14,
+  softSlide: 0.04,
+  softSteer: 0.3,
+  softGrip: 4.6,
+  grassSpeed: 0.3,
+  grassBleed: 22,
 };
 
 const GATES = [0, 0.25, 0.5, 0.75];
@@ -84,8 +91,10 @@ export function createRacer(def, pose) {
     lastLapTime: null,
     driftTime: 0,
     drifting: false,
+    driftKind: null,
     driftSide: 0,
     driftHop: 0,
+    hopSpan: 0,
     boost: 0,
     boostFrom: null,
     item: null,
@@ -142,8 +151,10 @@ export function resetRacer(racer) {
   racer.lastLapTime = null;
   racer.driftTime = 0;
   racer.drifting = false;
+  racer.driftKind = null;
   racer.driftSide = 0;
   racer.driftHop = 0;
+  racer.hopSpan = 0;
   racer.boost = 0;
   racer.boostFrom = null;
   racer.item = null;
@@ -210,6 +221,7 @@ export function stumble(racer, kind, dir = 1) {
   if (racer.stun > 0.2) return false;
   racer.drifting = false;
   racer.driftTime = 0;
+  racer.driftKind = null;
   racer.driftSide = 0;
   racer.driftHop = 0;
   racer.boost = 0;
@@ -264,23 +276,30 @@ export function stepRacer(racer, input, dt, track, ctx) {
   }
   racer.steer = steerIn;
 
-  const holdingDrift = !spinning && !knocked && !!input.drift && racer.speed > 6;
+  const sharp = !!input.drift;
+  const soft = !!input.glide && !sharp;
+  const holdingDrift = !spinning && !knocked && (sharp || soft) && racer.speed > 6;
   if (holdingDrift) {
+    const kind = sharp ? 'sharp' : 'soft';
     if (!racer.drifting) {
       racer.drifting = true;
       racer.driftTime = 0;
-      racer.driftHop = TUNING.driftHop;
+      racer.driftHop = kind === 'soft' ? TUNING.softHop : TUNING.driftHop;
+      racer.hopSpan = racer.driftHop;
       racer.driftSide = Math.abs(steerIn) > 0.15 ? Math.sign(steerIn) : 0;
     } else {
       racer.driftTime += dt;
       if (Math.abs(steerIn) > 0.15) racer.driftSide = Math.sign(steerIn);
     }
+    racer.driftKind = kind;
   } else if (racer.drifting) {
-    if (racer.driftTime >= TUNING.driftMin && racer.driftSide !== 0 && racer.boostFrom !== 'pamonha') {
+    const need = racer.driftKind === 'soft' ? TUNING.softMin : TUNING.driftMin;
+    if (racer.driftTime >= need && racer.driftSide !== 0 && racer.boostFrom !== 'pamonha') {
       racer.boost = TUNING.boostDuration;
       racer.boostFrom = 'drift';
     }
     racer.drifting = false;
+    racer.driftKind = null;
     racer.driftTime = 0;
     racer.driftSide = 0;
   }
@@ -294,7 +313,12 @@ export function stepRacer(racer, input, dt, track, ctx) {
   const accelMul = racer.accelMul || 1;
   const cornerMul = racer.cornerMul || 1;
   const boostMul = racer.boost > 0 ? (itemBoost ? TUNING.itemBoostMul : TUNING.boostMul) : 1;
-  const speedCap = TUNING.maxSpeed * pace * speedMul * boostMul * (racer.drifting ? 0.94 : 1);
+  const offroad = track.open ? Math.max(0, Math.abs(racer.lateral) - track.halfWidth) : 0;
+  const grass = offroad <= 0.25 ? 0 : Math.min(1, (offroad - 0.25) / 0.9);
+  const grassMul = 1 - grass * (1 - TUNING.grassSpeed);
+  const softDrift = racer.driftKind === 'soft';
+  const driftDrag = !racer.drifting ? 1 : softDrift ? 0.98 : 0.94;
+  const speedCap = TUNING.maxSpeed * pace * speedMul * boostMul * driftDrag * grassMul;
 
   let target = 0;
   let rate = TUNING.coast;
@@ -311,17 +335,22 @@ export function stepRacer(racer, input, dt, track, ctx) {
     }
   } else if (throttle > 0) {
     target = speedCap * clamp(throttle, 0, 1);
-    rate = TUNING.accel * accelMul * (racer.drifting ? 0.84 : 1) * (itemBoost ? TUNING.itemAccel : 1);
+    rate = TUNING.accel * accelMul * (racer.drifting ? (softDrift ? 0.94 : 0.84) : 1) * (itemBoost ? TUNING.itemAccel : 1);
   }
+  if (grass > 0 && racer.speed > target) rate = Math.max(rate, TUNING.grassBleed * grass);
 
   racer.speed += clamp(target - racer.speed, -rate * dt, rate * dt);
   if (racer.speed > speedCap) {
     racer.speed += (speedCap - racer.speed) * Math.min(1, 3.2 * dt);
   }
 
-  const driftingTurn = racer.drifting && racer.driftSide !== 0 && racer.driftHop < TUNING.driftHop * 0.55;
-  const turning = driftingTurn ? racer.driftSide : steerIn;
-  const steerAngle = turning * (driftingTurn ? TUNING.driftSteer : TUNING.steerAngle) * cornerMul;
+  const driftingTurn = racer.drifting && racer.driftSide !== 0 && racer.driftHop < (racer.hopSpan || TUNING.driftHop) * 0.55;
+  const turning = !driftingTurn
+    ? steerIn
+    : softDrift
+      ? clamp(racer.driftSide * 0.62 + steerIn * 0.5, -1, 1)
+      : racer.driftSide;
+  const steerAngle = turning * (driftingTurn ? (softDrift ? TUNING.softSteer : TUNING.driftSteer) : TUNING.steerAngle) * cornerMul;
   const signed = Math.sign(racer.speed || 1);
   const turnSpeed = Math.max(Math.abs(racer.speed), TUNING.minTurnSpeed);
   let yawRate = (turnSpeed / TUNING.wheelbase) * Math.tan(steerAngle) * signed;
@@ -331,8 +360,9 @@ export function stepRacer(racer, input, dt, track, ctx) {
   racer.yaw += yawRate * dt;
   if (driftingTurn) racer.steer = racer.driftSide;
 
-  const targetSlide = driftingTurn ? racer.driftSide * Math.abs(racer.speed) * TUNING.driftSlide : 0;
-  const grip = racer.drifting ? 1.7 : 8;
+  const slideMul = softDrift ? TUNING.softSlide : TUNING.driftSlide;
+  const targetSlide = driftingTurn ? racer.driftSide * Math.abs(racer.speed) * slideMul : 0;
+  const grip = racer.drifting ? (softDrift ? TUNING.softGrip : 1.7) : 8;
   racer.slide += (targetSlide - racer.slide) * Math.min(1, grip * dt);
 
   const fx = Math.sin(racer.yaw);
@@ -351,8 +381,11 @@ export function stepRacer(racer, input, dt, track, ctx) {
   if (against) racer.reverseTime = Math.min(1.4, racer.reverseTime + dt);
   else racer.reverseTime = Math.max(0, racer.reverseTime - dt * 1.5);
 
+  const pinned = track.open
+    ? Math.abs(racer.lateral) > track.offLimit - 0.8
+    : Math.abs(racer.lateral) > track.halfWidth - 2.4;
   if (spinning) racer.stuckTime = 0;
-  else if (racer.speed < 1.5 && Math.abs(racer.lateral) > track.halfWidth - 2.4) racer.stuckTime += dt;
+  else if (racer.speed < 1.5 && pinned) racer.stuckTime += dt;
   else racer.stuckTime = Math.max(0, racer.stuckTime - dt * 2);
 
   if (racer.stuckTime > 0.55 && racer.speed < 3) {
@@ -369,7 +402,45 @@ export function stepRacer(racer, input, dt, track, ctx) {
   }
 }
 
+function pushFromLake(racer, lake) {
+  if (!lake) return;
+  const dx = racer.x - lake.x;
+  const dz = racer.z - lake.z;
+  const e = (dx * dx) / (lake.rx * lake.rx) + (dz * dz) / (lake.rz * lake.rz);
+  if (e >= 1) return;
+  if (e < 1e-6) {
+    racer.x = lake.x + lake.rx * 1.04;
+    racer.z = lake.z;
+  } else {
+    const k = 1.04 / Math.sqrt(e);
+    racer.x = lake.x + dx * k;
+    racer.z = lake.z + dz * k;
+  }
+  racer.speed *= 0.9;
+}
+
+/** Open tracks keep a far, invisible curb and stay out of the lake. */
+function keepOnMap(racer, track) {
+  pushFromLake(racer, track.lake);
+  const proj = project(track, racer.x, racer.z);
+  const limit = track.offLimit;
+  if (Math.abs(proj.lateral) <= limit) return;
+  const sign = Math.sign(proj.lateral) || 1;
+  const push = Math.abs(proj.lateral) - limit;
+  racer.x -= proj.nx * sign * push;
+  racer.z -= proj.nz * sign * push;
+  const fx = Math.sin(racer.yaw);
+  const fz = Math.cos(racer.yaw);
+  const outward = (fx * proj.nx + fz * proj.nz) * sign;
+  if (outward > 0.25) racer.speed *= 0.86;
+  racer.slide *= 0.4;
+}
+
 function constrain(racer, track, dt, ctx) {
+  if (track.open) {
+    keepOnMap(racer, track);
+    return;
+  }
   const proj = project(track, racer.x, racer.z);
   const limit = track.halfWidth - TUNING.kartRadius;
   if (Math.abs(proj.lateral) <= limit) return;
@@ -432,6 +503,7 @@ export function applyProgress(racer, s, dt, ctx) {
 
 function parkFinished(racer, dt, track) {
   racer.drifting = false;
+  racer.driftKind = null;
   racer.boost = 0;
   racer.boostFrom = null;
   racer.speed = Math.max(0, racer.speed - 30 * dt);
@@ -485,6 +557,11 @@ export function separate(racers, track) {
   const limit = track.halfWidth - TUNING.kartRadius;
   for (const racer of racers) {
     if (racer.ghost) continue;
+    if (track.open) {
+      keepOnMap(racer, track);
+      racer.lateral = project(track, racer.x, racer.z).lateral;
+      continue;
+    }
     const proj = project(track, racer.x, racer.z);
     if (Math.abs(proj.lateral) > limit) {
       const sign = Math.sign(proj.lateral);
