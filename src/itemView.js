@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ITEM_RULES } from './items.js';
 
 function canvasTexture(width, height, draw) {
   const canvas = document.createElement('canvas');
@@ -210,6 +211,17 @@ function makeCasca() {
   return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xffe14a }));
 }
 
+function lineMotion(box) {
+  if (box.alive) {
+    return { presence: box.pop > 0 ? 1 - box.pop / ITEM_RULES.show : 1, lift: 0 };
+  }
+  const elapsed = ITEM_RULES.respawn - box.cooldown;
+  if (elapsed >= 0 && elapsed < ITEM_RULES.hide) {
+    return { presence: 1 - elapsed / ITEM_RULES.hide, lift: elapsed / ITEM_RULES.hide };
+  }
+  return { presence: 0, lift: 1 };
+}
+
 function makeTomate() {
   const group = new THREE.Group();
   group.add(new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), new THREE.MeshLambertMaterial({ color: 0xef3d3d })));
@@ -258,11 +270,13 @@ export function createItemView(scene, field, racers) {
     update(items, fieldRacers, time) {
       items.boxes.forEach((box, index) => {
         const bob = 0.78 + Math.sin(time * 3 + index) * 0.1;
-        const shown = box.alive ? 0.55 + 0.45 * (box.pop > 0 ? 1 - box.pop / 0.26 : 1) : 0.001;
         const cup = cups[index];
-        cup.position.set(box.x, box.alive ? bob : -6, box.z);
-        cup.rotation.set(0, time * 0.9 + index, 0);
-        cup.scale.setScalar(CUP_SCALE * shown);
+        const motion = lineMotion(box);
+        const ease = motion.presence * motion.presence * (3 - 2 * motion.presence);
+        cup.visible = ease > 0.03;
+        cup.position.set(box.x, bob + motion.lift * 1.05, box.z);
+        cup.rotation.set(motion.lift * 0.5, time * (0.9 + motion.lift * 7) + index, 0);
+        cup.scale.setScalar(CUP_SCALE * Math.max(ease, 0.001));
       });
 
       items.peels.forEach((peel, index) => {
@@ -292,6 +306,9 @@ export function createItemView(scene, field, racers) {
         marker.children[1].visible = id === 'casca';
         marker.children[2].visible = id === 'tomate';
       });
+    },
+    dispose() {
+      for (const obj of [...cups, ...peels, ...shots, ...markers]) scene.remove(obj);
     },
   };
 }

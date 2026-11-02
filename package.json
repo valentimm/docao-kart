@@ -10,6 +10,7 @@
     "test": "node scripts/smoke-race.mjs"
   },
   "dependencies": {
+    "peerjs": "^1.5.5",
     "three": "^0.186.1"
   },
   "devDependencies": {
